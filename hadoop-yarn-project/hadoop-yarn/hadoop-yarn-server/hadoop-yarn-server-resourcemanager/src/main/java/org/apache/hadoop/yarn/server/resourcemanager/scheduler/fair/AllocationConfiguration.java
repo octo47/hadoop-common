@@ -219,16 +219,11 @@ public class AllocationConfiguration {
   
   public boolean hasAccess(String queueName, QueueACL acl,
       UserGroupInformation user) {
-    int lastPeriodIndex = queueName.length();
-    while (lastPeriodIndex != -1) {
-      String queue = queueName.substring(0, lastPeriodIndex);
-      if (getQueueAcl(queue, acl).isUserAllowed(user)) {
+    for (String subQ : QueueName.pathToRoot(queueName)) {
+      if (getQueueAcl(subQ, acl).isUserAllowed(user)) {
         return true;
       }
-
-      lastPeriodIndex = queueName.lastIndexOf('.', lastPeriodIndex - 1);
     }
-    
     return false;
   }
   

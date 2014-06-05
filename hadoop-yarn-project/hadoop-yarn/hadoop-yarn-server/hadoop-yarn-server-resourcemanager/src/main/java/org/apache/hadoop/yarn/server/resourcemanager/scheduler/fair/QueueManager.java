@@ -133,20 +133,12 @@ public class QueueManager {
    */
   private FSQueue createQueue(String name, FSQueueType queueType) {
     List<String> newQueueNames = new ArrayList<String>();
-    newQueueNames.add(name);
-    int sepIndex = name.length();
     FSParentQueue parent = null;
-
     // Move up the queue tree until we reach one that exists.
-    while (sepIndex != -1) {
-      sepIndex = name.lastIndexOf('.', sepIndex-1);
-      FSQueue queue;
-      String curName = null;
-      curName = name.substring(0, sepIndex);
-      queue = queues.get(curName);
-
+    for (String subQueue : QueueName.pathToRoot(name)) {
+      final FSQueue queue = queues.get(subQueue);
       if (queue == null) {
-        newQueueNames.add(curName);
+        newQueueNames.add(subQueue);
       } else {
         if (queue instanceof FSParentQueue) {
           parent = (FSParentQueue)queue;
@@ -156,7 +148,7 @@ public class QueueManager {
         }
       }
     }
-    
+
     // At this point, parent refers to the deepest existing parent of the
     // queue to create.
     // Now that we know everything worked out, make all the queues
@@ -240,15 +232,11 @@ public class QueueManager {
 
     // Queue doesn't exist already. Check if the new queue would be created
     // under an existing leaf queue. If so, try removing that leaf queue.
-    int sepIndex = queueToCreate.length();
-    sepIndex = queueToCreate.lastIndexOf('.', sepIndex-1);
-    while (sepIndex != -1) {
-      String prefixString = queueToCreate.substring(0, sepIndex);
-      FSQueue prefixQueue = queues.get(prefixString);
+    for (String subQ : QueueName.pathToRoot(queueToCreate)) {
+      FSQueue prefixQueue = queues.get(subQ);
       if (prefixQueue != null && prefixQueue instanceof FSLeafQueue) {
         return removeQueueIfEmpty(prefixQueue);
       }
-      sepIndex = queueToCreate.lastIndexOf('.', sepIndex-1);
     }
     return true;
   }
