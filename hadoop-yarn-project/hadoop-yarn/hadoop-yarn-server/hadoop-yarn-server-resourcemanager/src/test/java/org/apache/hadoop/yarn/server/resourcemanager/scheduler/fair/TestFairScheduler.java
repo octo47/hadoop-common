@@ -43,6 +43,7 @@ import java.util.Set;
 
 import javax.xml.parsers.ParserConfigurationException;
 
+import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
@@ -2956,4 +2957,85 @@ public class TestFairScheduler extends FairSchedulerTestBase {
         createSchedulingRequest(1024, 1, "queue1", "user1", 3);
     scheduler.moveApplication(appAttId.getApplicationId(), "queue2");
   }
+
+  @Test
+  public void testMinShareInHierarchicalQueues() throws Exception {
+    conf.set(FairSchedulerConfiguration.ALLOCATION_FILE, ALLOC_FILE);
+    conf.set(FairSchedulerConfiguration.GLOBAL_PREEMPTION, "true");
+
+    PrintWriter out = new PrintWriter(new FileWriter(ALLOC_FILE));
+    out.println("<?xml version=\"1.0\"?>");
+    out.println("<allocations>");
+    out.println("<queue name=\"queue1\">");
+    out.println("  <maxResources>10240mb, 10vcores</maxResources>");
+    out.println("  <queue name=\"big\"/>");
+    out.println("  <queue name=\"sub1\">");
+    out.println("    <schedulingPolicy>fair</schedulingPolicy>");
+    out.println("    <queue name=\"sub11\">");
+    out.println("      <minResources>6192mb, 6vcores</minResources>");
+    out.println("    </queue>");
+    out.println("  </queue>");
+    out.println("  <queue name=\"sub2\">");
+    out.println("  </queue>");
+    out.println("</queue>");
+    out.println("</allocations>");
+    out.close();
+
+    scheduler.init(conf);
+    scheduler.start();
+    scheduler.reinitialize(conf, resourceManager.getRMContext());
+
+    RMNode node = MockNodes.newNodeInfo(1, BuilderUtils.newResource(10240, 10));
+    NodeAddedSchedulerEvent nodeEvent = new NodeAddedSchedulerEvent(node);
+    scheduler.handle(nodeEvent);
+    scheduler.update();
+
+    ApplicationAttemptId bigId = createSchedulingRequest(1024, "queue1.big", "user1", 10);
+    final FSSchedulerApp bigApp = scheduler.getSchedulerApp(bigId);
+    Thread.sleep(3); // make start time a bit different
+
+    // allocate all containers
+    for (int i = 0; i < 10; i++) {
+      final NodeUpdateSchedulerEvent updateEvent = new NodeUpdateSchedulerEvent(node);
+      scheduler.handle(updateEvent);
+      scheduler.update();
+    }
+    assertEquals(10, bigApp.getLiveContainers().size());
+
+    ApplicationAttemptId attId1 = createSchedulingRequest(1024, "queue1.sub1.sub11", "user1", 5);
+    final FSSchedulerApp app1 = scheduler.getSchedulerApp(attId1);
+    Thread.sleep(3); // make start time a bit different
+    ApplicationAttemptId attId2 = createSchedulingRequest(1024, "queue1.sub2", "user1", 5);
+    final FSSchedulerApp app2 = scheduler.getSchedulerApp(attId2);
+    scheduler.update();
+    assertEquals(0, app1.getLiveContainers().size());
+    assertEquals(0, app2.getLiveContainers().size());
+
+    completeContainers(bigId, 6);
+    scheduler.update();
+
+    // allocate containers
+    for (int i = 0; i < 6; i++) {
+      final NodeUpdateSchedulerEvent updateEvent = new NodeUpdateSchedulerEvent(node);
+      scheduler.handle(updateEvent);
+      scheduler.update();
+    }
+    assertEquals(5, app1.getLiveContainers().size());
+    assertEquals(1, app2.getLiveContainers().size());
+
+  }
+
+  private void completeContainers(ApplicationAttemptId attId1, int numOfContainers) {
+    final ArrayList<RMContainer> rmContainers =
+            Lists.newArrayList(scheduler.getSchedulerApp(attId1)
+                    .getLiveContainers());
+    final ArrayList<ContainerId> containerIds =
+            Lists.newArrayList();
+    for (int i = 0; i < numOfContainers; i++) {
+      containerIds.add(rmContainers.get(i).getContainerId());
+    }
+    scheduler.allocate(attId1, Lists.<ResourceRequest>newArrayList(),
+            containerIds, null, null);
+  }
+
 }

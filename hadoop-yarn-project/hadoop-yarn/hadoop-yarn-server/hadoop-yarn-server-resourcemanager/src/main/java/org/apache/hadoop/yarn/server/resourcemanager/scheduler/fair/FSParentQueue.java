@@ -35,7 +35,6 @@ import org.apache.hadoop.yarn.api.records.QueueUserACLInfo;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainer;
 import org.apache.hadoop.yarn.util.resource.Resources;
-import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainer;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ActiveUsersManager;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.SchedulerApplicationAttempt;
 
@@ -48,11 +47,15 @@ public class FSParentQueue extends FSQueue {
   private final List<FSQueue> childQueues = 
       new ArrayList<FSQueue>();
   private Resource demand = Resources.createResource(0);
+  private final boolean useGlobalPreeption;
+  private Resource aggregateMinShare;
   private int runnableApps;
   
   public FSParentQueue(String name, FairScheduler scheduler,
       FSParentQueue parent) {
     super(name, scheduler, parent);
+    useGlobalPreeption = scheduler.getConf().getGlobalPreeption();
+    aggregateMinShare = super.getMinShare();
   }
   
   public void addChildQueue(FSQueue child) {
@@ -61,12 +64,42 @@ public class FSParentQueue extends FSQueue {
 
   @Override
   public void recomputeShares() {
+    if (useGlobalPreeption) {
+      recomputeMinShare();
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Recomputing shares for " + getName() +
+              "; Using fairShare " + getFairShare() +
+              " and distributable minShare " + getMinShare());
+    }
     policy.computeShares(childQueues, getFairShare());
     for (FSQueue childQueue : childQueues) {
       childQueue.getMetrics().setFairShare(childQueue.getFairShare());
       childQueue.recomputeShares();
     }
   }
+
+  private void recomputeMinShare() {
+    // find preconfigured minShare, and if none found,
+    // calculate minShare from child queues.
+    if (aggregateMinShare.equals(Resources.none())) {
+      Resource childMinShares = Resources.clone(Resources.none());
+      for (FSQueue childQueue : childQueues) {
+        if (childQueue instanceof FSParentQueue) {
+          ((FSParentQueue) childQueue).recomputeMinShare();
+        }
+        Resources.addTo(childMinShares, childQueue.getMinShare());
+      }
+      aggregateMinShare = childMinShares;
+    }
+  }
+
+  @Override
+  public Resource getMinShare() {
+    // null here due of too early usage of getMinShare in super constructor
+    return aggregateMinShare == null ? super.getMinShare() : aggregateMinShare;
+  }
+
 
   @Override
   public Resource getDemand() {
