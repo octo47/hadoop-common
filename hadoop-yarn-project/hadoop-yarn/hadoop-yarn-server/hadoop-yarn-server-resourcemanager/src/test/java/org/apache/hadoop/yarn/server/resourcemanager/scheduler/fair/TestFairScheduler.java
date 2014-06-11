@@ -2985,7 +2985,7 @@ public class TestFairScheduler extends FairSchedulerTestBase {
     scheduler.start();
     scheduler.reinitialize(conf, resourceManager.getRMContext());
 
-    RMNode node = MockNodes.newNodeInfo(1, BuilderUtils.newResource(10240, 10));
+    RMNode node = MockNodes.newNodeInfo(1, BuilderUtils.newResource(10240 * 2, 10 * 2));
     NodeAddedSchedulerEvent nodeEvent = new NodeAddedSchedulerEvent(node);
     scheduler.handle(nodeEvent);
     scheduler.update();
@@ -3023,6 +3023,86 @@ public class TestFairScheduler extends FairSchedulerTestBase {
     assertEquals(5, app1.getLiveContainers().size());
     assertEquals(1, app2.getLiveContainers().size());
 
+    final NodeUpdateSchedulerEvent updateEvent = new NodeUpdateSchedulerEvent(node);
+    scheduler.handle(updateEvent);
+    assertEquals(5, app1.getLiveContainers().size());
+    assertEquals(1, app2.getLiveContainers().size());
+
+  }
+
+  @Test
+  public void testGlobalPreemption() throws Exception {
+    conf.set(FairSchedulerConfiguration.ALLOCATION_FILE, ALLOC_FILE);
+    conf.set(FairSchedulerConfiguration.PREEMPTION, "true");
+    conf.set(FairSchedulerConfiguration.GLOBAL_PREEMPTION, "true");
+    conf.setFloat(FairSchedulerConfiguration.PREEMPTION_THRESHOLD,
+            FairSchedulerConfiguration.DEFAULT_PREEMPTION_THRESHOLD);
+
+    MockClock clock = new MockClock();
+    scheduler.setClock(clock);
+
+    PrintWriter out = new PrintWriter(new FileWriter(ALLOC_FILE));
+    out.println("<?xml version=\"1.0\"?>");
+    out.println("<allocations>");
+    out.println("<queue name=\"queue1\">");
+    out.println("  <maxResources>10240mb, 10vcores</maxResources>");
+    out.println("  <minSharePreemptionTimeout>0</minSharePreemptionTimeout>"); // preempt immediately
+    out.println("  <queue name=\"big\"/>");
+    out.println("  <queue name=\"sub1\">");
+    out.println("    <schedulingPolicy>fair</schedulingPolicy>");
+    out.println("    <queue name=\"sub11\">");
+    out.println("      <minResources>6192mb, 6vcores</minResources>");
+    out.println("    </queue>");
+    out.println("  </queue>");
+    out.println("</queue>");
+    out.println("</allocations>");
+    out.close();
+
+    scheduler.init(conf);
+    scheduler.start();
+    scheduler.reinitialize(conf, resourceManager.getRMContext());
+
+    RMNode node = MockNodes.newNodeInfo(1, BuilderUtils.newResource(10240 * 2, 10 * 2));
+    NodeAddedSchedulerEvent nodeEvent = new NodeAddedSchedulerEvent(node);
+    scheduler.handle(nodeEvent);
+    scheduler.update();
+
+    scheduler.getQueueManager().getQueue("root.queue1")
+            .setPolicy(SchedulingPolicy.parse("fair"));
+
+    // create one big application
+    ApplicationAttemptId bigId = createSchedulingRequest(1024, "queue1.big", "user1", 10);
+    final FSSchedulerApp bigApp = scheduler.getSchedulerApp(bigId);
+
+    final NodeUpdateSchedulerEvent updateEvent = new NodeUpdateSchedulerEvent(node);
+    // allocate containers
+    for (int i = 0; i < 10; i++) {
+      scheduler.handle(updateEvent);
+    }
+    scheduler.update();
+    assertEquals(10, bigApp.getLiveContainers().size());
+
+    Thread.sleep(3); // make start time a bit different
+    ApplicationAttemptId attId1 = createSchedulingRequest(1024, "queue1.sub1.sub11", "user1", 5);
+    final FSSchedulerApp app1 = scheduler.getSchedulerApp(attId1);
+    scheduler.update();
+    scheduler.handle(updateEvent);
+    assertEquals(0, app1.getLiveContainers().size());
+    // Pretend 15 seconds have passed
+    clock.tick(15);
+    scheduler.preemptTasksIfNecessary();
+
+    // big app should return containers up to its fair share (6GB).
+    assertEquals(4, scheduler.getSchedulerApp(bigId).getPreemptionContainers().size());
+    completePreemteedContainers(bigId);
+    clock.tick(15);
+    for (int i = 0; i < 10; i++) {
+      scheduler.handle(updateEvent);
+    }
+
+    // needed containers should start
+    assertEquals(6, scheduler.getSchedulerApp(bigId).getLiveContainers().size());
+    assertEquals(4, scheduler.getSchedulerApp(attId1).getLiveContainers().size());
   }
 
   private void completeContainers(ApplicationAttemptId attId1, int numOfContainers) {
@@ -3033,6 +3113,19 @@ public class TestFairScheduler extends FairSchedulerTestBase {
             Lists.newArrayList();
     for (int i = 0; i < numOfContainers; i++) {
       containerIds.add(rmContainers.get(i).getContainerId());
+    }
+    scheduler.allocate(attId1, Lists.<ResourceRequest>newArrayList(),
+            containerIds, null, null);
+  }
+
+  private void completePreemteedContainers(ApplicationAttemptId attId1) {
+    final Set<RMContainer> rmContainers =
+            scheduler.getSchedulerApp(attId1)
+                    .getPreemptionContainers();
+    final ArrayList<ContainerId> containerIds =
+            Lists.newArrayList();
+    for (RMContainer rmContainer : rmContainers) {
+      containerIds.add(rmContainer.getContainerId());
     }
     scheduler.allocate(attId1, Lists.<ResourceRequest>newArrayList(),
             containerIds, null, null);

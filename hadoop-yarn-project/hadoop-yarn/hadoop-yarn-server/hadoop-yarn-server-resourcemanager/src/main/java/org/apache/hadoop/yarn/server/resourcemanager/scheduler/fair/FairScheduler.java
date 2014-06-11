@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -152,6 +153,7 @@ public class FairScheduler extends
 
   // Preemption related variables
   protected boolean preemptionEnabled;
+  protected boolean globalPreemtionEnabled;
   protected float preemptionUtilizationThreshold;
 
   // How often tasks are preempted
@@ -773,8 +775,8 @@ public class FairScheduler extends
     }
 
     LOG.info("Application attempt " + application.getApplicationAttemptId()
-        + " released container " + container.getId() + " on node: " + node
-        + " with event: " + event);
+            + " released container " + container.getId() + " on node: " + node
+            + " with event: " + event);
   }
 
   private synchronized void addNode(RMNode node) {
@@ -783,7 +785,7 @@ public class FairScheduler extends
     updateRootQueueMetrics();
 
     LOG.info("Added node " + node.getNodeAddress() +
-        " cluster capacity: " + clusterResource);
+            " cluster capacity: " + clusterResource);
   }
 
   private synchronized void removeNode(RMNode rmNode) {
@@ -1071,12 +1073,38 @@ public class FairScheduler extends
    */
   private boolean shouldAttemptPreemption() {
     if (preemptionEnabled) {
-      return (preemptionUtilizationThreshold < Math.max(
-          (float) rootMetrics.getAvailableMB() / clusterResource.getMemory(),
-          (float) rootMetrics.getAvailableVirtualCores() /
-              clusterResource.getVirtualCores()));
+      // check global cluster load
+      if ((preemptionUtilizationThreshold < calculateUsage(rootMetrics, clusterResource)))
+        return true;
+      if (globalPreemtionEnabled) {
+        // check queues utilization
+        return shouldAttemptPreemption(queueMgr.getRootQueue());
+      }
     }
     return false;
+  }
+
+  private float calculateUsage(FSQueueMetrics metrics, Resource maxResource) {
+    Resource compareTo = Resources.min(RESOURCE_CALCULATOR, clusterResource,
+            maxResource, clusterResource);
+    return Math.max(
+            (float) metrics.getAllocatedMB() / (float) compareTo.getMemory(),
+            (float) metrics.getAllocatedVirtualCores() /
+                    (float) compareTo.getVirtualCores());
+  }
+
+  private boolean shouldAttemptPreemption(FSQueue queue) {
+    double usage = calculateUsage(queue.getMetrics(), queue.getMaxShare());
+    for (FSQueue childQueue : queue.getChildQueues()) {
+      if (shouldAttemptPreemption(childQueue))
+        return true;
+      final float queueUsage = calculateUsage(
+              childQueue.getMetrics(), childQueue.getMaxShare());
+      usage = Math.max( usage, queueUsage);
+      if (usage > preemptionUtilizationThreshold)
+        return true;
+    }
+    return usage > preemptionUtilizationThreshold;
   }
 
   @Override
@@ -1188,6 +1216,7 @@ public class FairScheduler extends
     preemptionEnabled = this.conf.getPreemptionEnabled();
     preemptionUtilizationThreshold =
         this.conf.getPreemptionUtilizationThreshold();
+    globalPreemtionEnabled = this.conf.getGlobalPreeption();
     assignMultiple = this.conf.getAssignMultiple();
     maxAssign = this.conf.getMaxAssign();
     sizeBasedWeight = this.conf.getSizeBasedWeight();

@@ -47,14 +47,14 @@ public class FSParentQueue extends FSQueue {
   private final List<FSQueue> childQueues = 
       new ArrayList<FSQueue>();
   private Resource demand = Resources.createResource(0);
-  private final boolean useGlobalPreeption;
+  private final boolean useGlobalPreemption;
   private Resource aggregateMinShare;
   private int runnableApps;
   
   public FSParentQueue(String name, FairScheduler scheduler,
       FSParentQueue parent) {
     super(name, scheduler, parent);
-    useGlobalPreeption = scheduler.getConf().getGlobalPreeption();
+    useGlobalPreemption = scheduler.getConf().getGlobalPreeption();
     aggregateMinShare = super.getMinShare();
   }
   
@@ -64,7 +64,7 @@ public class FSParentQueue extends FSQueue {
 
   @Override
   public void recomputeShares() {
-    if (useGlobalPreeption) {
+    if (useGlobalPreemption) {
       recomputeMinShare();
     }
     if (LOG.isDebugEnabled()) {
@@ -90,7 +90,10 @@ public class FSParentQueue extends FSQueue {
         }
         Resources.addTo(childMinShares, childQueue.getMinShare());
       }
-      aggregateMinShare = childMinShares;
+      if (!Resources.equals(aggregateMinShare, childMinShares)) {
+        aggregateMinShare = childMinShares;
+        getMetrics().setMinShare(childMinShares);
+      }
     }
   }
 
@@ -198,7 +201,10 @@ public class FSParentQueue extends FSQueue {
     RMContainer toBePreempted = null;
 
     // If this queue is not over its fair share, reject
-    if (!preemptContainerPreCheck()) {
+    // but only if global preemption aint used.
+    // in that case we should check inner queus and application
+    // explicitly
+    if (!(useGlobalPreemption || preemptContainerPreCheck())) {
       return toBePreempted;
     }
 
