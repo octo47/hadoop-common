@@ -775,8 +775,8 @@ public class FairScheduler extends
     }
 
     LOG.info("Application attempt " + application.getApplicationAttemptId()
-            + " released container " + container.getId() + " on node: " + node
-            + " with event: " + event);
+        + " released container " + container.getId() + " on node: " + node
+        + " with event: " + event);
   }
 
   private synchronized void addNode(RMNode node) {
@@ -785,7 +785,7 @@ public class FairScheduler extends
     updateRootQueueMetrics();
 
     LOG.info("Added node " + node.getNodeAddress() +
-            " cluster capacity: " + clusterResource);
+        " cluster capacity: " + clusterResource);
   }
 
   private synchronized void removeNode(RMNode rmNode) {
