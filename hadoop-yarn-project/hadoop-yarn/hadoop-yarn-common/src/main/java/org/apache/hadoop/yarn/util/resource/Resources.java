@@ -250,7 +250,12 @@ public class Resources {
     return smaller.getMemory() <= bigger.getMemory() &&
         smaller.getVirtualCores() <= bigger.getVirtualCores();
   }
-  
+
+  public static boolean less(Resource smaller, Resource bigger) {
+    return smaller.getMemory() < bigger.getMemory() &&
+            smaller.getVirtualCores() < bigger.getVirtualCores();
+  }
+
   public static Resource componentwiseMin(Resource lhs, Resource rhs) {
     return createResource(Math.min(lhs.getMemory(), rhs.getMemory()),
         Math.min(lhs.getVirtualCores(), rhs.getVirtualCores()));
