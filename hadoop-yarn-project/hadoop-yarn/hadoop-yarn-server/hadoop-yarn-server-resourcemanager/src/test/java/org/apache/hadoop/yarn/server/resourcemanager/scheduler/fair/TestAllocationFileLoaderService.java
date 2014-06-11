@@ -458,7 +458,56 @@ public class TestAllocationFileLoaderService {
     allocLoader.setReloadListener(confHolder);
     allocLoader.reloadAllocations();
   }
-  
+
+  @Test
+  public void testHierarchicalAllocations() throws Exception {
+    Configuration conf = new Configuration();
+    conf.set(FairSchedulerConfiguration.ALLOCATION_FILE, ALLOC_FILE);
+    conf.setBoolean(FairSchedulerConfiguration.ALLOW_UNDECLARED_POOLS, false);
+    conf.setBoolean(FairSchedulerConfiguration.USER_AS_DEFAULT_QUEUE, false);
+
+    PrintWriter out = new PrintWriter(new FileWriter(ALLOC_FILE));
+    out.println("<?xml version=\"1.0\"?>");
+    out.println("<allocations>");
+    // Give queue A a minimum of 1024 M
+    out.println("<queue name=\"queueA\">");
+    out.println("<minSharePreemptionTimeout>60</minSharePreemptionTimeout>");
+    out.println("<schedulingPolicy>fifo</schedulingPolicy>");
+    out.println("<queue name=\"queueB\">");
+    out.println("<minSharePreemptionTimeout>120</minSharePreemptionTimeout>");
+    out.println("<schedulingPolicy>fair</schedulingPolicy>");
+    out.println("</queue>");
+    out.println("<queue name=\"queueC\">");
+    out.println("</queue>");
+    out.println("</queue>");
+    out.println("<defaultMinSharePreemptionTimeout>300"
+            + "</defaultMinSharePreemptionTimeout>");
+    out.println("<defaultQueueSchedulingPolicy>drf</defaultQueueSchedulingPolicy>");
+    out.println("</allocations>");
+    out.close();
+
+    AllocationFileLoaderService allocLoader = new AllocationFileLoaderService();
+    allocLoader.init(conf);
+    ReloadListener confHolder = new ReloadListener();
+    allocLoader.setReloadListener(confHolder);
+    allocLoader.reloadAllocations();
+    AllocationConfiguration queueConf = confHolder.allocConf;
+
+    assertEquals("FIFO", queueConf.getSchedulingPolicy("root.queueA").getName());
+    assertEquals("fair", queueConf.getSchedulingPolicy("root.queueA.queueB").getName());
+    assertEquals("FIFO", queueConf.getSchedulingPolicy("root.queueA.queueC").getName());
+    // not existent queue
+    assertEquals("DRF", queueConf.getSchedulingPolicy("root.queueD").getName());
+
+    assertEquals(60000, queueConf.getMinSharePreemptionTimeout("root.queueA"));
+    assertEquals(120000, queueConf.getMinSharePreemptionTimeout("root.queueA.queueB"));
+    assertEquals(60000, queueConf.getMinSharePreemptionTimeout("root.queueA.queueC"));
+    // not existent queue
+    assertEquals(300000, queueConf.getMinSharePreemptionTimeout("root.queueD"));
+
+  }
+
+
   private class ReloadListener implements AllocationFileLoaderService.Listener {
     public AllocationConfiguration allocConf;
     

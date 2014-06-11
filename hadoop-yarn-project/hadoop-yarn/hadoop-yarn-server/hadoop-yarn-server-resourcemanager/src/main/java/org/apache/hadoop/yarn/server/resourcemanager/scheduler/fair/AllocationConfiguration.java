@@ -164,9 +164,8 @@ public class AllocationConfiguration {
    * are below their min share.
    */
   public long getMinSharePreemptionTimeout(String queueName) {
-    Long minSharePreemptionTimeout = minSharePreemptionTimeouts.get(queueName);
-    return (minSharePreemptionTimeout == null) ? defaultMinSharePreemptionTimeout
-        : minSharePreemptionTimeout;
+    return QueueName.findInHierarchy(minSharePreemptionTimeouts, queueName,
+            defaultMinSharePreemptionTimeout);
   }
   
   /**
@@ -228,8 +227,7 @@ public class AllocationConfiguration {
   }
   
   public SchedulingPolicy getSchedulingPolicy(String queueName) {
-    SchedulingPolicy policy = schedulingPolicies.get(queueName);
-    return (policy == null) ? defaultSchedulingPolicy : policy;
+    return QueueName.findInHierarchy(schedulingPolicies, queueName, defaultSchedulingPolicy);
   }
   
   public SchedulingPolicy getDefaultSchedulingPolicy() {
