@@ -123,6 +123,12 @@ public class FairSchedulerConfiguration extends Configuration {
   protected static final String MAX_ASSIGN = CONF_PREFIX + "max.assign";
   protected static final int DEFAULT_MAX_ASSIGN = -1;
 
+  /** Whether global preemption enabled. */
+  protected static final String  GLOBAL_PREEMPTION = CONF_PREFIX + "globalPreemption";
+  protected static final boolean DEFAULT_GLOBAL_PREEMPTION = false;
+
+
+
   public FairSchedulerConfiguration() {
     super();
   }
@@ -225,6 +231,10 @@ public class FairSchedulerConfiguration extends Configuration {
   public boolean getUsePortForNodeName() {
     return getBoolean(YarnConfiguration.RM_SCHEDULER_INCLUDE_PORT_IN_NODE_NAME,
         YarnConfiguration.DEFAULT_RM_SCHEDULER_USE_PORT_FOR_NODE_NAME);
+  }
+
+  public boolean getGlobalPreeption() {
+    return getBoolean(GLOBAL_PREEMPTION, DEFAULT_GLOBAL_PREEMPTION);
   }
 
   /**
