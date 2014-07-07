@@ -25,8 +25,8 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.List;
-import java.util.Random;
 
+import com.google.common.primitives.Longs;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
@@ -42,10 +42,7 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
-
-import com.google.common.primitives.Longs;
 
 /**
  * ZooKeeper-based implementation of {@link CoordinationEngine}.
@@ -60,10 +57,13 @@ implements CoordinationEngine, Configurable, Watcher {
    */
   public static final long INVALID_GSN = -1L;
 
+
   protected Serializable localNodeId;
-  protected ZooKeeper zooKeeper;
   protected Configuration conf;
   protected AgreementHandler<?> handler;
+  protected String zkConnectString;
+
+  protected ZkConnection zooKeeper;
 
   /**
    * True if this instance of Coordination Engine is running.
@@ -81,16 +81,6 @@ implements CoordinationEngine, Configurable, Watcher {
     initialize(config);
   }
 
-  /**
-   * Used to access random host in ZooKeeper quorum.
-   */
-  private static final ThreadLocal<Random> RANDOM = new ThreadLocal<Random>() {
-    @Override
-    protected Random initialValue() {
-      return new Random();
-    }
-  };
-
   @Override
   public void initialize(Configuration config) {
     this.conf = config;
@@ -98,6 +88,12 @@ implements CoordinationEngine, Configurable, Watcher {
     this.isRunning = false;
     this.isLearning = false;
     this.localNodeId = conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, null);
+    if (this.localNodeId == null) {
+      throw new HadoopIllegalArgumentException("Please define a value for: "
+              + ZKConfigKeys.CE_ZK_NODE_ID_KEY);
+    }
+    this.zkConnectString = conf.get(ZKConfigKeys.CE_ZK_QUORUM_KEY,
+            ZKConfigKeys.CE_ZK_QUORUM_DEFAULT);
   }
 
   @Override
@@ -117,32 +113,19 @@ implements CoordinationEngine, Configurable, Watcher {
     }
 
     try {
-      zooKeeper = new ZooKeeper(getRandomZooKeeperHost(),
-        getZooKeeperSessionTimeout(), this);
-
-      isLearning = true;
-      if(localNodeId == null) {
-        throw new HadoopIllegalArgumentException("Please define a value for: "
-          + ZKConfigKeys.CE_ZK_NODE_ID_KEY);
-      }
-
+      zooKeeper = new ZkConnection(
+              zkConnectString,
+              getZooKeeperSessionTimeout());
       currentGSN = getGlobalSequenceNumber();
-      LOG.info("Set current GSN to: " + currentGSN);
+      LOG.info("Set current GSN to: " + currentGSN + ", zk session 0x" +
+              Long.toHexString(zooKeeper.getSessionId()));
     } catch (Exception e) {
+      stopZk();
       throw new IOException("Cannot start ZKCoordinationEngine", e);
     }
     isRunning = true;
+    resumeLearning();
     LOG.info("Started ZKCoordinationEngine.");
-  }
-
-  private String getRandomZooKeeperHost() {
-    String hostValue = conf.get(ZKConfigKeys.CE_ZK_QUORUM_KEY,
-      ZKConfigKeys.CE_ZK_QUORUM_DEFAULT);
-    String hosts[] = hostValue.split(",");
-    if(hosts.length == 1)
-      return hosts[0];
-    int randomIndex = RANDOM.get().nextInt(hosts.length);
-    return hosts[randomIndex];
   }
 
   private int getZooKeeperSessionTimeout() {
@@ -156,16 +139,15 @@ implements CoordinationEngine, Configurable, Watcher {
       return;
     }
 
-    try {
-      if(zooKeeper != null) {
-        zooKeeper.close();
-      }
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    }
+    stopZk();
     isRunning = false;
     isLearning = false;
     LOG.info("Stopped ZKCoordinationEngine.");
+  }
+
+  private synchronized void stopZk() {
+    zooKeeper.close();
+    zooKeeper = null;
   }
 
   @Override
@@ -223,7 +205,7 @@ implements CoordinationEngine, Configurable, Watcher {
 
   @Override
   public boolean canPropose() {
-    return zooKeeper!= null && zooKeeper.getState().isConnected();
+    return zooKeeper.isAlive();
   }
 
   @Override
@@ -246,7 +228,7 @@ implements CoordinationEngine, Configurable, Watcher {
 
   @Override
   public void checkQuorum() throws NoQuorumException {
-    if(zooKeeper == null || !zooKeeper.getState().isConnected()) {
+    if (zooKeeper.isConnected()) {
       throw new NoQuorumException("No connection to ZooKeeper");
     }
   }
@@ -272,19 +254,27 @@ implements CoordinationEngine, Configurable, Watcher {
     String gsnZnode = getGlobalSequenceNumberZNodePath(nodeId);
     String engineZnode = ZKConfigKeys.CE_ZK_ENGINE_ZNODE_DEFAULT;
 
+    // first optimistically try to get GSN, if we a lucky,
+    // operation will be executed in async mode, which helps
+    // us a lot with maintaining throughput
+
+
     while(true) {
       try {
-        if(zooKeeper.exists(engineZnode, false) == null) {
-          zooKeeper.create(engineZnode, new byte[0],
-            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        }
+        final ZNode data = zooKeeper.getData(gsnZnode);
+        if (!data.isExists()) {
+          if (zooKeeper.exists(engineZnode) == null) {
+            zooKeeper.create(engineZnode, new byte[0],
+                    ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+          }
 
-        if(zooKeeper.exists(gsnZnode, false) == null) {
-          zooKeeper.create(gsnZnode, Longs.toByteArray(globalSequenceNumber),
-            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-          return globalSequenceNumber;
-        } else {
-          return Longs.fromByteArray(zooKeeper.getData(gsnZnode, this, null));
+          if (zooKeeper.exists(gsnZnode) == null) {
+            zooKeeper.create(gsnZnode, Longs.toByteArray(globalSequenceNumber),
+                    ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            return globalSequenceNumber;
+          } else {
+            return Longs.fromByteArray(zooKeeper.getData(gsnZnode).getData());
+          }
         }
       } catch (Exception e) {
         if(LOG.isDebugEnabled())
@@ -319,7 +309,7 @@ implements CoordinationEngine, Configurable, Watcher {
       long newGSN = currentGSN + 1;
       String gsnZnode = getGlobalSequenceNumberZNodePath(getLocalNodeId());
       try {
-        if(zooKeeper.exists(gsnZnode, false) == null) {
+        if (zooKeeper.exists(gsnZnode) == null) {
           createOrGetGlobalSequenceNumber(getLocalNodeId(), newGSN);
         }
         zooKeeper.setData(gsnZnode, Longs.toByteArray(newGSN), -1);
@@ -386,7 +376,7 @@ implements CoordinationEngine, Configurable, Watcher {
       if(!isLearning) return;
       String nextProposal = getExpectedAgreementZNodePath();
       try {
-        stat = zooKeeper.exists(nextProposal, this);
+        stat = zooKeeper.exists(nextProposal);
       } catch(Exception e) {
         throw new IOException("Cannot obtain stat for: " + nextProposal, e);
       }
@@ -401,9 +391,9 @@ implements CoordinationEngine, Configurable, Watcher {
   void executeAgreement(String path) throws IOException {
     Object obj = null;
     try {
-      byte[] data = zooKeeper.getData(path, this, null);
+      ZNode data = zooKeeper.getData(path);
       ObjectInputStream ois = new ObjectInputStream(
-                                new ByteArrayInputStream(data));
+              new ByteArrayInputStream(data.getData()));
       obj = ois.readObject();
     } catch(Exception e) {
       throw new IOException("Cannot obtain agreement data: ", e);

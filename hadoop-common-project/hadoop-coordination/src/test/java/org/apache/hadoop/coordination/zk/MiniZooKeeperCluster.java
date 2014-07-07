@@ -24,12 +24,19 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ExecutionException;
 
+import com.google.common.base.Throwables;
+import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.hadoop.fs.FileUtil;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.server.NIOServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
 import org.apache.zookeeper.test.ClientBase;
@@ -57,6 +64,7 @@ public class MiniZooKeeperCluster {
   private List<Integer> clientPortList;
 
   private int activeZKServerIndex;
+  private String connectString;
 
   public MiniZooKeeperCluster() {
     this.started = false;
@@ -72,6 +80,10 @@ public class MiniZooKeeperCluster {
         + clientPort);
     }
     this.defaultClientPort = clientPort;
+  }
+
+  public String getConnectString() {
+    return connectString;
   }
 
   /**
@@ -146,9 +158,36 @@ public class MiniZooKeeperCluster {
     // set the first one to be active ZK; Others are backups
     activeZKServerIndex = 0;
     started = true;
-    int clientPort = clientPortList.get(activeZKServerIndex);
+    final int clientPort = clientPortList.get(activeZKServerIndex);
+    StringBuilder sb = new StringBuilder();
+    for (ZooKeeperServer zooKeeperServer : zooKeeperServers) {
+      sb.append(zooKeeperServer.getServerCnxnFactory().getLocalAddress().getHostString());
+      sb.append(":").append(zooKeeperServer.getClientPort());
+    }
+    connectString = sb.toString();
     LOG.info("Started MiniZK Cluster and connect 1 ZK server " +
-      "on client port: " + clientPort);
+      "on: " + connectString);
+    final SettableFuture<Boolean> connected = SettableFuture.create();
+    final ZooKeeper zk = new ZooKeeper(connectString, 1000, new Watcher() {
+      @Override
+      public void process(WatchedEvent event) {
+        switch (event.getState()) {
+          case SyncConnected:
+            connected.set(true);
+            break;
+          case Expired:
+            connected.setException(
+                    new NoQuorumException("Failed to establish connection to " + connectString));
+        }
+      }
+    });
+    try {
+      connected.get();
+    } catch (ExecutionException e) {
+      throw Throwables.propagate(e.getCause());
+    } finally {
+      zk.close();
+    }
     return clientPort;
   }
 
@@ -175,15 +214,7 @@ public class MiniZooKeeperCluster {
 
     // shut down all the zk servers
     for (int i = 0; i < standaloneServerFactoryList.size(); i++) {
-      NIOServerCnxnFactory standaloneServerFactory =
-        standaloneServerFactoryList.get(i);
-      int clientPort = clientPortList.get(i);
-
-      standaloneServerFactory.shutdown();
-      if (!ClientBase.waitForServerDown(defaultHost + ":" + clientPort,
-          CONNECTION_TIMEOUT)) {
-        throw new IOException("Waiting for shutdown of standalone server");
-      }
+      shutdownServerByIndex(i);
     }
     for (ZooKeeperServer zkServer: zooKeeperServers) {
       //explicitly close ZKDatabase since ZookeeperServer does not close them
@@ -198,5 +229,17 @@ public class MiniZooKeeperCluster {
     zooKeeperServers.clear();
 
     LOG.info("Shutdown MiniZK cluster with all ZK servers");
+  }
+
+  public void shutdownServerByIndex(int i) throws IOException {
+    NIOServerCnxnFactory standaloneServerFactory =
+      standaloneServerFactoryList.get(i);
+    int clientPort = clientPortList.get(i);
+
+    standaloneServerFactory.shutdown();
+    if (!ClientBase.waitForServerDown(defaultHost + ":" + clientPort,
+            CONNECTION_TIMEOUT)) {
+      throw new IOException("Waiting for shutdown of standalone server");
+    }
   }
 }
