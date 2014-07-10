@@ -22,6 +22,7 @@ import java.io.Serializable;
 import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.service.Service;
 
 
 /**
@@ -36,22 +37,6 @@ import org.apache.hadoop.conf.Configuration;
 public interface CoordinationEngine {
 
   static enum ProposalReturnCode { OK, NO_QUORUM }
-
-  /**
-   * Initialize the Engine.
-   */
-  void initialize(Configuration config);
-
-  /**
-   * Start the Engine.
-   * @throws IOException
-   */
-  void start() throws IOException;
-
-  /**
-   * Stop the Engine.
-   */
-  void stop();
 
   /**
    * Obtain ordered collection of node IDs in the membership.
@@ -88,7 +73,7 @@ public interface CoordinationEngine {
    */
   ProposalReturnCode submitProposal(final Proposal proposal,
                                     boolean checkQuorum)
-    throws ProposalNotAcceptedException;
+          throws ProposalNotAcceptedException, NoQuorumException;
 
   /**
    * An agreement in the Global Sequence of events is characterized by
