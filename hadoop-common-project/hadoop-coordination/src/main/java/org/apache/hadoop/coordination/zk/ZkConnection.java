@@ -238,21 +238,70 @@ public class ZkConnection implements Closeable, Watcher {
     return op;
   }
 
-
-  public void create(String path, byte[] serializedProposal, ArrayList<ACL> openAclUnsafe, CreateMode persistentSequential) {
-    // TODO: write me
-    throw new UnsupportedOperationException();
+  /**
+   * Create node with specified parameters.
+   * If mode is nonsequential, will retry operation (operation considered indempotent)
+   *
+   * @param path  path to create (or prefix, in case of sequential)
+   * @param bytes payload
+   * @param acl   acl assign to znode
+   * @param mode  create mode
+   * @return resulting path
+   * @throws IOException
+   * @throws KeeperException
+   */
+  public String create(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode)
+          throws IOException, KeeperException {
+    return waitForFeature(createAsync(path, bytes, acl, mode));
   }
 
-  public void setData(String path, byte[] bytes, int version) {
-    // TODO: write me
-    throw new UnsupportedOperationException();
+  /**
+   * Asynchronous version of create().
+   *
+   * @param path  path to create (or prefix, in case of sequential)
+   * @param bytes payload
+   * @param acl   acl assign to znode
+   * @param mode  create mode
+   * @return Future for resulting path
+   */
+  public Future<String> createAsync(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode) {
+    final CreateOp op = new CreateOp(path, bytes, acl, mode);
+    op.submitAsyncOperation();
+    return op;
+  }
+
+  public Stat setData(String path, byte[] bytes, int version) throws IOException, KeeperException {
+    return waitForFeature(setDataAsync(path, bytes, version));
+  }
+
+  public Future<Stat> setDataAsync(String path, byte[] bytes, int version) {
+    final SetDataOp op = new SetDataOp(path, bytes, version);
+    op.submitAsyncOperation();
+    return op;
+  }
+
+  public void delete(String path) throws IOException, KeeperException {
+    waitForFeature(deleteAsync(path, -1));
+  }
+
+  public void delete(String path, int version) throws IOException, KeeperException {
+    waitForFeature(deleteAsync(path, version));
+  }
+
+  public Future<Void> deleteAsync(String path, int version) {
+    final DeleteOp op = new DeleteOp(path, version);
+    op.submitAsyncOperation();
+    return op;
   }
 
   @Override
   public void process(WatchedEvent event) {
     for (Watcher watcher : watchers) {
-      watcher.process(event);
+      try {
+        watcher.process(event);
+      } catch (Exception e) {
+        LOG.error("Failed to process event", e);
+      }
     }
     switch (event.getState()) {
       case SyncConnected:
@@ -281,6 +330,10 @@ public class ZkConnection implements Closeable, Watcher {
      */
     public abstract String getDescription();
 
+    protected boolean isIdempotent() {
+      return true;
+    }
+
     /**
      * Submit async operation
      */
@@ -290,6 +343,9 @@ public class ZkConnection implements Closeable, Watcher {
     protected boolean setException(@Nullable Throwable cause) {
       if (cause == null)
         return super.setException(new IllegalArgumentException("Null throwable passed"));
+      if (!isIdempotent()) // don't retry for non-idempotent operations
+        return super.setException(cause);
+
       final boolean rc;
       if (cause instanceof KeeperException) {
         switch (((KeeperException) cause).code()) {
@@ -353,7 +409,92 @@ public class ZkConnection implements Closeable, Watcher {
   }
 
   /**
-   * Future for exists() operation
+   * Future for create() operation
+   * TODO: create shouldn't be idempotent for *_SEQENTIAL
+   */
+  public class CreateOp extends ZkOperationFuture<String> implements AsyncCallback.StringCallback {
+
+    private final String path;
+    private final byte[] bytes;
+    private final List<ACL> acl;
+    private final CreateMode mode;
+
+    @Override
+    public void processResult(int rc, String path, Object ctx, String name) {
+      final KeeperException.Code code = KeeperException.Code.get(rc);
+      if (isSuccess(code)) {
+        set(name);
+      } else {
+        setException(KeeperException.create(code));
+      }
+    }
+
+    public CreateOp(String path, byte[] bytes, List<ACL> acl, CreateMode mode) {
+      this.path = path;
+      this.bytes = bytes;
+      this.mode = mode;
+      this.acl = Lists.newArrayList(acl);
+    }
+
+    @Override
+    protected boolean isIdempotent() {
+      return !mode.isSequential();
+    }
+
+    @Override
+    public void submitAsyncOperation() {
+      zk.create(path, bytes, acl, mode, this, this);
+    }
+
+    @Override
+    public String getDescription() {
+      return "create(" + path + ", " + mode + ")";
+    }
+  }
+
+  /**
+   * Future for setData() operation
+   */
+  public class SetDataOp extends ZkOperationFuture<Stat> implements AsyncCallback.StatCallback {
+
+    @Override
+    public void processResult(int rc, String path, Object ctx, Stat stat) {
+      final KeeperException.Code code = KeeperException.Code.get(rc);
+      if (isSuccess(code)) {
+        set(stat);
+      } else {
+        setException(KeeperException.create(code));
+      }
+    }
+
+    private final String path;
+    private final byte[] data;
+    private final int version;
+
+    public SetDataOp(String path, byte[] data, int version) {
+      this.path = path;
+      this.data = data;
+      this.version = version;
+    }
+
+    @Override
+    protected boolean isIdempotent() {
+      return version != -1;
+    }
+
+    @Override
+    public void submitAsyncOperation() {
+      zk.setData(path, data, version, this, this);
+    }
+
+    @Override
+    public String getDescription() {
+      return "setData(" + path + ", " + version + ")";
+    }
+  }
+
+  /**
+   * Future for getData() operation
    */
   public class GetDataOp extends ZkOperationFuture<ZNode> implements AsyncCallback.DataCallback {
 
@@ -400,6 +541,47 @@ public class ZkConnection implements Closeable, Watcher {
       throw new NoQuorumException("Operation timed out", e);
     }
   }
+
+  /**
+   * Future for setData() operation
+   */
+  public class DeleteOp extends ZkOperationFuture<Void> implements AsyncCallback.VoidCallback {
+
+    @Override
+    public void processResult(int rc, String path, Object ctx) {
+      final KeeperException.Code code = KeeperException.Code.get(rc);
+      if (isSuccess(code) || (ignoreNonExists && isNodeDoesNotExist(code))) {
+        set(null);
+      } else {
+        setException(KeeperException.create(code));
+      }
+    }
+
+    private final String path;
+    private final int version;
+    private final boolean ignoreNonExists;
+
+    public DeleteOp(String path, int version, boolean ignoreNonExists) {
+      this.path = path;
+      this.version = version;
+      this.ignoreNonExists = ignoreNonExists;
+    }
+
+    public DeleteOp(String path, int version) {
+      this(path, version, true);
+    }
+
+    @Override
+    public void submitAsyncOperation() {
+      zk.delete(path, version, this, this);
+    }
+
+    @Override
+    public String getDescription() {
+      return "setData(" + path + ", " + version + ")";
+    }
+  }
+
 
   private static boolean isSuccess(KeeperException.Code code) {
     return (code == KeeperException.Code.OK);

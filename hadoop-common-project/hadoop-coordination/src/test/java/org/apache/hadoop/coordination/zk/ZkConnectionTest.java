@@ -9,7 +9,9 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.zookeeper.ClientCnxn;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.Assert;
@@ -18,6 +20,8 @@ import org.junit.Test;
 public class ZkConnectionTest {
 
   private static final Log LOG = LogFactory.getLog(ZkConnection.class);
+
+  private static final byte[] EMPTY_BYTES = {};
 
   private MiniZooKeeperCluster zkCluster;
 
@@ -47,6 +51,31 @@ public class ZkConnectionTest {
     } catch (KeeperException e) {
       Assert.fail();
     }
+    zkcon.close();
+  }
+
+  @Test
+  public void testCreate() throws IOException, InterruptedException, KeeperException {
+    startMiniZk();
+    ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 2000);
+    zkcon.delete("/test1");
+    zkcon.create("/test1", EMPTY_BYTES, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+    Assert.assertEquals(0, zkcon.getData("/test1").getStat().getCversion());
+    String path = zkcon.create("/test1/abc-", EMPTY_BYTES,
+            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+    Assert.assertEquals("/test1/abc-0000000000", path);
+    Assert.assertEquals(1, zkcon.getData("/test1").getStat().getCversion());
+
+    zkcon.delete(path, 0);
+    Assert.assertEquals(2, zkcon.getData("/test1").getStat().getCversion());
+    zkcon.delete(path, -1);
+    zkcon.delete(path);
+
+    String path2 = zkcon.create("/test1/abc-", EMPTY_BYTES,
+            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+    Assert.assertEquals("/test1/abc-0000000001", path2);
+    Assert.assertEquals(3, zkcon.getData("/test1").getStat().getCversion());
+
     zkcon.close();
   }
 
