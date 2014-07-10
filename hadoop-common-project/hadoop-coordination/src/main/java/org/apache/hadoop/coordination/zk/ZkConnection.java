@@ -4,7 +4,9 @@ import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -53,48 +55,10 @@ public class ZkConnection implements Closeable, Watcher {
   private final HashedWheelTimer timer = new HashedWheelTimer();
 
   // TODO: replace with path specific listeners
-  private final List<Watcher> watchers = new ArrayList<Watcher>();
+  private final Set<Watcher> watchers = new LinkedHashSet<Watcher>();
 
   public int getSessionTimeout() {
     return sessionTimeout;
-  }
-
-  // helper watcher class used to filter out unnecessary path events
-  private static class PathWatcher implements Watcher {
-
-    private final String path;
-    private final Watcher delegate;
-
-    private PathWatcher(String path, Watcher delegate) {
-      this.path = path;
-      this.delegate = delegate;
-    }
-
-    @Override
-    public void process(WatchedEvent event) {
-      if (event.getPath() != null && event.getPath().equals(path))
-        delegate.process(event);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      PathWatcher that = (PathWatcher) o;
-
-      if (delegate != null ? !delegate.equals(that.delegate) : that.delegate != null) return false;
-      if (path != null ? !path.equals(that.path) : that.path != null) return false;
-
-      return true;
-    }
-
-    @Override
-    public int hashCode() {
-      int result = path != null ? path.hashCode() : 0;
-      result = 31 * result + (delegate != null ? delegate.hashCode() : 0);
-      return result;
-    }
   }
 
   public ZkConnection(String quorumString, int sessionTimeout)
@@ -127,16 +91,8 @@ public class ZkConnection implements Closeable, Watcher {
     watchers.add(watcher);
   }
 
-  public synchronized void addWatcher(String path, Watcher watcher) {
-    addWatcher(new PathWatcher(path, watcher));
-  }
-
   public synchronized void removeWatcher(Watcher watcher) {
     watchers.remove(watcher);
-  }
-
-  public synchronized void removeWatcher(String path, Watcher watcher) {
-    removeWatcher(new PathWatcher(path, watcher));
   }
 
   public synchronized void close() {
@@ -175,8 +131,11 @@ public class ZkConnection implements Closeable, Watcher {
             connected.setException(
                     new NoQuorumException("Failed to establish connection to " + quorumString));
         }
+        ZkConnection.this.process(event);
       }
-    });
+    }) {
+
+    };
     try {
       connected.get(this.sessionTimeout, TimeUnit.MILLISECONDS);
       // do sync check
@@ -196,17 +155,23 @@ public class ZkConnection implements Closeable, Watcher {
    * @throws KeeperException
    */
   public Stat exists(String path) throws IOException, KeeperException {
-    return waitForFeature(existsAsync(path));
+    return waitForFeature(existsAsync(path, false));
   }
+
+  public Stat exists(String path, boolean watch) throws IOException, KeeperException {
+    return waitForFeature(existsAsync(path, watch));
+  }
+
 
   /**
    * Async version of exists()
    * @param path path to check
+   * @param watch if true, subscribe for changes
    * @return Future
    * @see #exists(String)
    */
-  public Future<Stat> existsAsync(String path) {
-    final ExistsOp op = new ExistsOp(path);
+  public Future<Stat> existsAsync(String path, boolean watch) {
+    final ExistsOp op = new ExistsOp(path, watch);
     op.submitAsyncOperation();
     return op;
   }
@@ -221,19 +186,23 @@ public class ZkConnection implements Closeable, Watcher {
    * @see org.apache.hadoop.coordination.zk.ZNode
    */
   public ZNode getData(String path) throws IOException, KeeperException {
-    return waitForFeature(getDataAsync(path));
+    return waitForFeature(getDataAsync(path, false));
+  }
+
+  public ZNode getData(String path, boolean watch) throws IOException, KeeperException {
+    return waitForFeature(getDataAsync(path, watch));
   }
 
   /**
    * Async version of getData()
    * @param path to get data for
+   * @param watch if true, subscribe for changes
    * @return Future with ZNode
-   * @throws IOException
-   * @throws KeeperException
    * @see #getData(String)
+   * @see #addWatcher(String, org.apache.zookeeper.Watcher)
    */
-  public Future<ZNode> getDataAsync(String path) throws IOException, KeeperException {
-    final GetDataOp op = new GetDataOp(path);
+  public Future<ZNode> getDataAsync(String path, boolean watch) {
+    final GetDataOp op = new GetDataOp(path, watch);
     op.submitAsyncOperation();
     return op;
   }
@@ -304,14 +273,34 @@ public class ZkConnection implements Closeable, Watcher {
       }
     }
     switch (event.getState()) {
+      case Disconnected:
+        LOG.info("Disconnected session 0x" + Long.toHexString(zk.getSessionId()));
+        break;
       case SyncConnected:
+        LOG.info("Reconnected session 0x" + Long.toHexString(zk.getSessionId()));
         break;
       case Expired:
+        LOG.info("Lost session 0x" + Long.toHexString(zk.getSessionId()));
         close();
       default:
         // FALL THROUGH
     }
 
+  }
+
+  private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException {
+    try {
+      return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      throw new NoQuorumException("Operation interrupted", e);
+    } catch (ExecutionException e) {
+      final Throwable cause = e.getCause();
+      Throwables.propagateIfPossible(cause, KeeperException.class);
+      Throwables.propagateIfPossible(cause, NoQuorumException.class);
+      throw Throwables.propagate(cause);
+    } catch (TimeoutException e) {
+      throw new NoQuorumException("Operation timed out", e);
+    }
   }
 
   /**
@@ -343,8 +332,6 @@ public class ZkConnection implements Closeable, Watcher {
     protected boolean setException(@Nullable Throwable cause) {
       if (cause == null)
         return super.setException(new IllegalArgumentException("Null throwable passed"));
-      if (!isIdempotent()) // don't retry for non-idempotent operations
-        return super.setException(cause);
 
       final boolean rc;
       if (cause instanceof KeeperException) {
@@ -353,10 +340,17 @@ public class ZkConnection implements Closeable, Watcher {
           case OPERATIONTIMEOUT:
             LOG.info("Lost connection to zk quorum performing " + getDescription() +
                     ", will retry");
-            timer.newTimeout(this, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
-            rc = false;
+            if (!isIdempotent()) // don't retry for non-idempotent operations
+              rc = super.setException(cause);
+            else {
+              timer.newTimeout(this, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
+              rc = false;
+            }
             break;
           case SESSIONEXPIRED:
+            LOG.error("Failed zk operation " + getDescription(), cause);
+            rc = super.setException(new NoQuorumException("Session expired"));
+            break;
           default:
             LOG.error("Failed zk operation " + getDescription(), cause);
             rc = super.setException(cause);
@@ -392,14 +386,16 @@ public class ZkConnection implements Closeable, Watcher {
     }
 
     private final String path;
+    private final boolean watch;
 
-    public ExistsOp(String path) {
+    public ExistsOp(String path, boolean watch) {
       this.path = path;
+      this.watch = watch;
     }
 
     @Override
     public void submitAsyncOperation() {
-      zk.exists(path, false, this, this);
+      zk.exists(path, watch ? ZkConnection.this : null, this, this);
     }
 
     @Override
@@ -410,7 +406,6 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Future for create() operation
-   * TODO: create shouldn't be idempotent for *_SEQENTIAL
    */
   public class CreateOp extends ZkOperationFuture<String> implements AsyncCallback.StringCallback {
 
@@ -511,14 +506,16 @@ public class ZkConnection implements Closeable, Watcher {
     }
 
     private final String path;
+    private final boolean watch;
 
-    public GetDataOp(String path) {
+    public GetDataOp(String path, boolean watch) {
       this.path = path;
+      this.watch = watch;
     }
 
     @Override
     public void submitAsyncOperation() {
-      zk.getData(path, false, this, this);
+      zk.getData(path, watch ? ZkConnection.this : null, this, this);
     }
 
     @Override
@@ -527,20 +524,6 @@ public class ZkConnection implements Closeable, Watcher {
     }
   }
 
-  private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException {
-    try {
-      return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
-    } catch (InterruptedException e) {
-      throw new NoQuorumException("Operation interrupted", e);
-    } catch (ExecutionException e) {
-      final Throwable cause = e.getCause();
-      Throwables.propagateIfPossible(cause, KeeperException.class);
-      Throwables.propagateIfPossible(cause, NoQuorumException.class);
-      throw Throwables.propagate(cause);
-    } catch (TimeoutException e) {
-      throw new NoQuorumException("Operation timed out", e);
-    }
-  }
 
   /**
    * Future for setData() operation

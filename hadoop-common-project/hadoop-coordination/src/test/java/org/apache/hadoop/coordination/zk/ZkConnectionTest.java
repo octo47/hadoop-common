@@ -3,6 +3,8 @@ package org.apache.hadoop.coordination.zk;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
 import org.apache.commons.logging.Log;
@@ -11,6 +13,8 @@ import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.zookeeper.ClientCnxn;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
@@ -55,12 +59,13 @@ public class ZkConnectionTest {
   }
 
   @Test
-  public void testCreate() throws IOException, InterruptedException, KeeperException {
+  public void testBasicOps() throws IOException, InterruptedException, KeeperException {
     startMiniZk();
-    ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 2000);
+    final ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 2000);
     zkcon.delete("/test1");
     zkcon.create("/test1", EMPTY_BYTES, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
     Assert.assertEquals(0, zkcon.getData("/test1").getStat().getCversion());
+
     String path = zkcon.create("/test1/abc-", EMPTY_BYTES,
             ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
     Assert.assertEquals("/test1/abc-0000000000", path);
@@ -71,10 +76,25 @@ public class ZkConnectionTest {
     zkcon.delete(path, -1);
     zkcon.delete(path);
 
+    zkcon.exists("/test1/abc-0000000002", true);
+    final CountDownLatch fired = new CountDownLatch(1);
+    zkcon.addWatcher(new Watcher() {
+      @Override
+      public void process(WatchedEvent event) {
+        if (event.getType().equals(Event.EventType.NodeCreated)
+                && event.getPath().startsWith("/test1"))
+          fired.countDown();
+      }
+    });
+
+    String outoforder = zkcon.create("/test1/node-added", EMPTY_BYTES,
+            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
     String path2 = zkcon.create("/test1/abc-", EMPTY_BYTES,
             ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
-    Assert.assertEquals("/test1/abc-0000000001", path2);
-    Assert.assertEquals(3, zkcon.getData("/test1").getStat().getCversion());
+    Assert.assertEquals("/test1/abc-0000000002", path2);
+    Assert.assertEquals(4, zkcon.getData("/test1").getStat().getCversion());
+
+    Assert.assertTrue(fired.await(1, TimeUnit.SECONDS));
 
     zkcon.close();
   }
