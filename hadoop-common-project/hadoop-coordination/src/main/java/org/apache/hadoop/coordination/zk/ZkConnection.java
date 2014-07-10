@@ -10,7 +10,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
@@ -45,6 +47,8 @@ public class ZkConnection implements Closeable, Watcher {
   private final int sessionTimeout;
   private final String chrootPath;
 
+  private volatile ZooKeeper zk;
+
   // used in async retries
   private final HashedWheelTimer timer = new HashedWheelTimer();
 
@@ -71,9 +75,27 @@ public class ZkConnection implements Closeable, Watcher {
       if (event.getPath() != null && event.getPath().equals(path))
         delegate.process(event);
     }
-  }
 
-  private volatile ZooKeeper zk;
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      PathWatcher that = (PathWatcher) o;
+
+      if (delegate != null ? !delegate.equals(that.delegate) : that.delegate != null) return false;
+      if (path != null ? !path.equals(that.path) : that.path != null) return false;
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      int result = path != null ? path.hashCode() : 0;
+      result = 31 * result + (delegate != null ? delegate.hashCode() : 0);
+      return result;
+    }
+  }
 
   public ZkConnection(String quorumString, int sessionTimeout)
           throws IOException {
@@ -101,6 +123,22 @@ public class ZkConnection implements Closeable, Watcher {
     return -1;
   }
 
+  public synchronized void addWatcher(Watcher watcher) {
+    watchers.add(watcher);
+  }
+
+  public synchronized void addWatcher(String path, Watcher watcher) {
+    addWatcher(new PathWatcher(path, watcher));
+  }
+
+  public synchronized void removeWatcher(Watcher watcher) {
+    watchers.remove(watcher);
+  }
+
+  public synchronized void removeWatcher(String path, Watcher watcher) {
+    removeWatcher(new PathWatcher(path, watcher));
+  }
+
   public synchronized void close() {
     if (zk != null) {
       LOG.error("Closing zk session 0x" + Long.toHexString(zk.getSessionId()));
@@ -111,6 +149,11 @@ public class ZkConnection implements Closeable, Watcher {
       }
     }
     zk = null;
+  }
+
+  @VisibleForTesting
+  ZooKeeper getZk() {
+    return zk;
   }
 
   private void connect() throws IOException {
@@ -345,7 +388,7 @@ public class ZkConnection implements Closeable, Watcher {
 
   private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException {
     try {
-      return op.get(sessionTimeout, TimeUnit.MICROSECONDS);
+      return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
     } catch (InterruptedException e) {
       throw new NoQuorumException("Operation interrupted", e);
     } catch (ExecutionException e) {
@@ -368,14 +411,6 @@ public class ZkConnection implements Closeable, Watcher {
 
   private static boolean isNodeDoesNotExist(KeeperException.Code code) {
     return (code == KeeperException.Code.NONODE);
-  }
-
-  private static boolean isSessionExpired(KeeperException.Code code) {
-    return (code == KeeperException.Code.SESSIONEXPIRED);
-  }
-
-  private static boolean shouldRetry(KeeperException.Code code) {
-    return code == KeeperException.Code.CONNECTIONLOSS || code == KeeperException.Code.OPERATIONTIMEOUT;
   }
 
 }
