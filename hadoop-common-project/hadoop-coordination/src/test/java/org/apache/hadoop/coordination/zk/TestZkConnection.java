@@ -21,7 +21,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class ZkConnectionTest {
+public class TestZkConnection {
 
   private static final Log LOG = LogFactory.getLog(ZkConnection.class);
 
@@ -45,6 +45,8 @@ public class ZkConnectionTest {
     LOG.info("Starting miniZK");
     startMiniZk();
     ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 1000);
+    Assert.assertTrue(zkcon.isAlive());
+    Assert.assertTrue(zkcon.isConnected());
     LOG.info("Disconnecting miniZK");
     getClientCnxn(zkcon).disconnect();
     try {
@@ -52,6 +54,8 @@ public class ZkConnectionTest {
       LOG.info("exists succesfully completed");
       Assert.fail();
     } catch (NoQuorumException e) {
+      Assert.assertFalse(zkcon.isAlive());
+      Assert.assertFalse(zkcon.isConnected());
     } catch (KeeperException e) {
       Assert.fail();
     }
@@ -64,6 +68,13 @@ public class ZkConnectionTest {
     final ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 2000);
     zkcon.delete("/test1");
     zkcon.create("/test1", EMPTY_BYTES, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+    try {
+      zkcon.create("/test1", EMPTY_BYTES, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+      Assert.fail();
+    } catch (KeeperException.NodeExistsException nee) {
+    } catch (Exception e) {
+      Assert.fail();
+    }
     Assert.assertEquals(0, zkcon.getData("/test1").getStat().getCversion());
 
     String path = zkcon.create("/test1/abc-", EMPTY_BYTES,

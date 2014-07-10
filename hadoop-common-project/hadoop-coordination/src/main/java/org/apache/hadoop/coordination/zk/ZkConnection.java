@@ -154,11 +154,11 @@ public class ZkConnection implements Closeable, Watcher {
    * @throws IOException
    * @throws KeeperException
    */
-  public Stat exists(String path) throws IOException, KeeperException {
+  public Stat exists(String path) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(existsAsync(path, false));
   }
 
-  public Stat exists(String path, boolean watch) throws IOException, KeeperException {
+  public Stat exists(String path, boolean watch) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(existsAsync(path, watch));
   }
 
@@ -185,11 +185,11 @@ public class ZkConnection implements Closeable, Watcher {
    * @throws KeeperException
    * @see org.apache.hadoop.coordination.zk.ZNode
    */
-  public ZNode getData(String path) throws IOException, KeeperException {
+  public ZNode getData(String path) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(getDataAsync(path, false));
   }
 
-  public ZNode getData(String path, boolean watch) throws IOException, KeeperException {
+  public ZNode getData(String path, boolean watch) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(getDataAsync(path, watch));
   }
 
@@ -220,7 +220,7 @@ public class ZkConnection implements Closeable, Watcher {
    * @throws KeeperException
    */
   public String create(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode)
-          throws IOException, KeeperException {
+          throws IOException, KeeperException, InterruptedException {
     return waitForFeature(createAsync(path, bytes, acl, mode));
   }
 
@@ -239,7 +239,7 @@ public class ZkConnection implements Closeable, Watcher {
     return op;
   }
 
-  public Stat setData(String path, byte[] bytes, int version) throws IOException, KeeperException {
+  public Stat setData(String path, byte[] bytes, int version) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(setDataAsync(path, bytes, version));
   }
 
@@ -249,11 +249,11 @@ public class ZkConnection implements Closeable, Watcher {
     return op;
   }
 
-  public void delete(String path) throws IOException, KeeperException {
+  public void delete(String path) throws IOException, KeeperException, InterruptedException {
     waitForFeature(deleteAsync(path, -1));
   }
 
-  public void delete(String path, int version) throws IOException, KeeperException {
+  public void delete(String path, int version) throws IOException, KeeperException, InterruptedException {
     waitForFeature(deleteAsync(path, version));
   }
 
@@ -288,11 +288,9 @@ public class ZkConnection implements Closeable, Watcher {
 
   }
 
-  private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException {
+  private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException, InterruptedException {
     try {
       return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
-    } catch (InterruptedException e) {
-      throw new NoQuorumException("Operation interrupted", e);
     } catch (ExecutionException e) {
       final Throwable cause = e.getCause();
       Throwables.propagateIfPossible(cause, KeeperException.class);
