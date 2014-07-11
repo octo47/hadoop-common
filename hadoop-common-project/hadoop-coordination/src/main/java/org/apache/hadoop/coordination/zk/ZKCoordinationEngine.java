@@ -85,7 +85,6 @@ public class ZKCoordinationEngine extends AbstractService
   private String zkGsnPath;
   private String zkGsnZNode;
   private int zookeeperSessionTimeout;
-  private Configuration conf;
   private AgreementHandler<?> handler;
   private String zkConnectString;
   private int zkBatchSize;
@@ -512,8 +511,6 @@ public class ZKCoordinationEngine extends AbstractService
 
     private synchronized void applyAgreement(int seq, Agreement<?, ?> agreement)
             throws IOException, KeeperException, InterruptedException {
-      // TODO: ensure, that we need to store current GSN after aggrement apply
-      // TODO: sink about bulk updates
       currentGSN = ZkCoordinationProtocol.ZkGsnState.newBuilder()
               .setGsn(currentGSN.getGsn() + 1)
               .setSeq(seq)
