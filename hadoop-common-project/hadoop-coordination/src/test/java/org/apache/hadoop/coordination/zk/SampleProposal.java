@@ -46,8 +46,8 @@ class SampleProposal extends ConsensusProposal<SampleLearner, Integer> {
     return receiveTime;
   }
 
-  public void setCurrentUser() throws IOException {
-    user = UserGroupInformation.getCurrentUser().getUserName();
+  public void setUser(String user) throws IOException {
+    this.user = user;
   }
 
   public String getUser() {

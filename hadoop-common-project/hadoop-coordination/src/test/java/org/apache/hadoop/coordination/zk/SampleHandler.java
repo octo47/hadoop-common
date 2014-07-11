@@ -51,7 +51,8 @@ public class SampleHandler implements AgreementHandler<SampleLearner> {
     SampleProposal agreed = (SampleProposal) agreement;
     try {
       int s = agreed.execute(getLearner());
-      LOG.info(learner.getClass().getSimpleName() + " state updated to " + s);
+      if (LOG.isTraceEnabled())
+        LOG.trace(learner.getClass().getSimpleName() + " state updated to " + s);
     } catch (IOException e) {
       LOG.error("Failed to apply agreement: " + agreement, e);
     }

@@ -17,10 +17,9 @@
  */
 package org.apache.hadoop.coordination.zk;
 
-import java.util.Date;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.util.Time;
 
 /**
  * A primitive learner.
@@ -33,8 +32,10 @@ public class SampleLearner {
 
   public void updateState(long time) {
     agreementsCount++;
-    LOG.info("Updated internalCount to: " + agreementsCount +
-             " :: originally proposed @ " + new Date(time));
+    if (LOG.isDebugEnabled())
+      LOG.debug("Updated internalCount to: " + agreementsCount +
+              " :: originally proposed @ " + time +
+              " diff=" + (Time.now() - time));
   }
 
   public int getState() {
