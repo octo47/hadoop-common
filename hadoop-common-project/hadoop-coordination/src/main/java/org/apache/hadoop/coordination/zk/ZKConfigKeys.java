@@ -51,6 +51,13 @@ public class ZKConfigKeys {
   public static final int CE_ZK_BATCH_SIZE_DEFAULT = 100;
 
   /**
+   * Key for ZK batch GSN commit.
+   */
+  public static final String CE_ZK_BATCH_COMMIT_KEY =
+          "ce.zk.batch.commit";
+  public static final boolean CE_ZK_BATCH_COMMIT_DEFAULT = false;
+
+  /**
    * Unique ID of the node for coordination engine. No default value.
    */
   public static final String CE_ZK_NODE_ID_KEY = "ce.zk.node.id";

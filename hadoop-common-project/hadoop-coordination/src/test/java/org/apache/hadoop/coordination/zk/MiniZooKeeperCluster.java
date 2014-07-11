@@ -163,7 +163,9 @@ public class MiniZooKeeperCluster {
     for (ZooKeeperServer zooKeeperServer : zooKeeperServers) {
       sb.append(zooKeeperServer.getServerCnxnFactory().getLocalAddress().getHostString());
       sb.append(":").append(zooKeeperServer.getClientPort());
+      sb.append(",");
     }
+
     connectString = sb.toString();
     LOG.info("Started MiniZK Cluster and connect 1 ZK server " +
       "on: " + connectString);

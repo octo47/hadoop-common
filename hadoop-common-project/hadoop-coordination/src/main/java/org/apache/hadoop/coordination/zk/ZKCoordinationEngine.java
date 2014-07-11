@@ -89,6 +89,7 @@ public class ZKCoordinationEngine extends AbstractService
   private AgreementHandler<?> handler;
   private String zkConnectString;
   private int zkBatchSize;
+  private boolean zkBatchCommit;
 
   private final Semaphore learnerCanProceed = new Semaphore(0);
   private Thread learnerThread;
@@ -128,6 +129,8 @@ public class ZKCoordinationEngine extends AbstractService
     this.instanceId = ManagementFactory.getRuntimeMXBean().getName();
     this.zkBatchSize = conf.getInt(ZKConfigKeys.CE_ZK_BATCH_SIZE_KEY,
             ZKConfigKeys.CE_ZK_BATCH_SIZE_DEFAULT);
+    this.zkBatchCommit = conf.getBoolean(ZKConfigKeys.CE_ZK_BATCH_COMMIT_KEY,
+            ZKConfigKeys.CE_ZK_BATCH_COMMIT_DEFAULT);
     this.zkRootPath = ensureNoEndingSlash(conf.get(ZKConfigKeys.CE_ZK_QUORUM_PATH_KEY,
             ZKConfigKeys.CE_ZK_QUORUM_PATH_DEFAULT));
     this.zkAgreementsPath = ensureNoEndingSlash(zkRootPath +
@@ -137,6 +140,8 @@ public class ZKCoordinationEngine extends AbstractService
     this.zkGsnPath = ensureNoEndingSlash(zkRootPath +
             ZKConfigKeys.CE_ZK_GSN_ZNODE_PATH);
     this.zkGsnZNode = zkGsnPath + "/" + localNodeId;
+
+    LOG.info("CE parameters: batch=" + zkBatchSize);
   }
 
   @Override
@@ -239,8 +244,8 @@ public class ZKCoordinationEngine extends AbstractService
           new Function<String, ProposalReturnCode>() {
             @Override
             public ProposalReturnCode apply(@Nullable String input) {
-              if (LOG.isDebugEnabled())
-                LOG.debug("Proposal submitted to " + input);
+              if (LOG.isTraceEnabled())
+                LOG.trace("Proposal submitted to " + input);
               return ProposalReturnCode.OK;
             }
           };
@@ -419,7 +424,7 @@ public class ZKCoordinationEngine extends AbstractService
     public void run() {
       while (isLearning) {
         try {
-          learnerCanProceed.tryAcquire(1, TimeUnit.SECONDS);
+          learnerCanProceed.tryAcquire(100, TimeUnit.MILLISECONDS);
           learnerCanProceed.drainPermits();
           executeAgreements();
         } catch (InterruptedException e) {
@@ -439,20 +444,23 @@ public class ZKCoordinationEngine extends AbstractService
       do {
         if (!isLearning)
           return;
-        LOG.debug("Executing agreements");
         try {
           // first figure out how many pending aggrements are waiting,
           // that can be found from parent node cversion and last
           // cversion which we saw
           final List<Future<ZNode>> futures = new ArrayList<Future<ZNode>>();
-          final List<Future<Stat>> gsnFutures = new ArrayList<Future<Stat>>();
           final ZNode agreementsData = zooKeeper.getData(zkAgreementsPath);
           final int start = currentGSN.getSeq() + 1;
           // ensure don't take whole zk database in one turn
           final int end = Math.min(
                   agreementsData.getStat().getCversion(),
                   start + zkBatchSize);
-          LOG.debug("Expected iteration from " + start + " to " + end);
+          if (end - start < 1)
+            break;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Executing agreements");
+            LOG.debug("Expected iteration from " + start + " to " + end);
+          }
           for (int seq = start; seq < end; seq++) {
             futures.add(zooKeeper.getDataAsync(getExpectedAgreementZNodePath(seq), false));
           }
@@ -472,16 +480,15 @@ public class ZKCoordinationEngine extends AbstractService
                 throw new IOException("Expecting Agreement type, but got " + obj);
               Agreement<?, ?> agreement = (Agreement<?, ?>) obj;
 
-              gsnFutures.add(applyAgreement(seq, agreement));
+              applyAgreement(seq, agreement);
+              if (!zkBatchCommit)
+                updateCurrentGSN();
             } catch (Exception e) {
               throw new IOException("Cannot obtain agreement data: ", e);
             }
           }
-          for (Future<Stat> gsnFuture : gsnFutures) {
-            Futures.get(gsnFuture,
-                    zookeeperSessionTimeout, TimeUnit.MILLISECONDS,
-                    IOException.class);
-          }
+          if (zkBatchCommit)
+            updateCurrentGSN();
           final int expectedSeq = currentGSN.getSeq() + 1;
           String nextProposal = getExpectedAgreementZNodePath(expectedSeq);
           Stat stat;
@@ -492,15 +499,18 @@ public class ZKCoordinationEngine extends AbstractService
           }
           if (stat == null) {
             LOG.info("Registered for: " + nextProposal);
-            return;
+            break;
           }
         } catch (KeeperException e) {
           throw new IOException("Agreements path missed");
         }
+        if (LOG.isTraceEnabled())
+          LOG.trace("Agreement iteration processing done, GSN is " + currentGSN.toString());
+
       } while (isLearning);
     }
 
-    private synchronized Future<Stat> applyAgreement(int seq, Agreement<?, ?> agreement)
+    private synchronized void applyAgreement(int seq, Agreement<?, ?> agreement)
             throws IOException, KeeperException, InterruptedException {
       // TODO: ensure, that we need to store current GSN after aggrement apply
       // TODO: sink about bulk updates
@@ -508,18 +518,22 @@ public class ZKCoordinationEngine extends AbstractService
               .setGsn(currentGSN.getGsn() + 1)
               .setSeq(seq)
               .build();
-      if (LOG.isDebugEnabled())
-        LOG.debug("Applying agreement, set GSN to " + currentGSN.toString());
+      if (LOG.isTraceEnabled())
+        LOG.trace("Applying agreement, set GSN to " + currentGSN.toString());
       handler.executeAgreement(agreement);
-      if (LOG.isDebugEnabled())
-        LOG.debug("Saving agreement, set GSN to " + currentGSN.toString());
-      return zooKeeper.setDataAsync(zkGsnZNode, currentGSN.toByteArray(), -1);
     }
 
     private String getExpectedAgreementZNodePath(int cversion) {
       return zkAgreementsPathTemplate +
               String.format(Locale.ENGLISH, "%010d", cversion);
     }
+  }
+
+  private void updateCurrentGSN()
+          throws InterruptedException, IOException, KeeperException {
+    if (LOG.isTraceEnabled())
+      LOG.trace("Saving agreement, set GSN to " + currentGSN.toString());
+    zooKeeper.setData(zkGsnZNode, currentGSN.toByteArray(), -1);
   }
 
   private static String ensureNoEndingSlash(String path) {

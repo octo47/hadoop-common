@@ -29,6 +29,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.service.Service;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -83,7 +84,7 @@ public class TestZKCoordinationEngine {
     Assert.assertEquals(Service.STATE.STARTED, cEngine.getServiceState());
 
     SampleProposal scp = new SampleProposal(proposerNodeId);
-    scp.setCurrentUser();
+    scp.setUser("abc");
     cEngine.submitProposal(scp, true);
 
     while (cEngine.getGlobalSequenceNumber() == 0) {
@@ -124,6 +125,8 @@ public class TestZKCoordinationEngine {
             "testMultipleWriters"), 1);
 
 
+    //conf.setInt(ZKConfigKeys.CE_ZK_BATCH_SIZE_KEY, 250);
+    //conf.setBoolean(ZKConfigKeys.CE_ZK_BATCH_COMMIT_KEY, false);
     ZKCoordinationEngine cEngine = new ZKCoordinationEngine("ce");
     cEngine.init(conf);
     SampleLearner myLearner = new SampleLearner();
@@ -132,7 +135,7 @@ public class TestZKCoordinationEngine {
 
     Thread.sleep(200);
 
-    final int totalAgreements = 100000;
+    final int totalAgreements = 2000;
     final int totalClients = 64;
     int approxMkdirsPerClient = totalAgreements / totalClients;
     int extrasToMake = (totalAgreements - (approxMkdirsPerClient * totalClients));
@@ -189,7 +192,8 @@ public class TestZKCoordinationEngine {
    */
   private static class AgreementsThread extends Thread {
     private String proposerNodeId = "node1";
-    private int operations;
+    private final int operations;
+    private final String user;
     private boolean initialized;
     private static volatile boolean launched;
     private static ZKCoordinationEngine ce;
@@ -198,6 +202,11 @@ public class TestZKCoordinationEngine {
       this.operations = operations;
       this.initialized = false;
       launched = false;
+      try {
+        user = UserGroupInformation.getCurrentUser().getUserName();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
       ce = cEngine;
     }
 
@@ -213,12 +222,13 @@ public class TestZKCoordinationEngine {
         try {
           SampleProposal scp =
             new SampleProposal(proposerNodeId);
-          scp.setCurrentUser();
+          scp.setUser(user);
           ce.submitProposal(scp, true);
         } catch (IOException e) {
           fail(String.valueOf(e));
         }
       }
+      LOG.info("Done emitting proposals thread=" + Thread.currentThread().getId());
     }
 
     public static void launch() {
