@@ -147,8 +147,8 @@ public class ZkAgreementsStorage {
             if (LOG.isTraceEnabled())
               LOG.trace("Proposal stored in " + path);
           } else {
-            if (LOG.isDebugEnabled())
-              LOG.debug("Proposal is out of bucket " + path);
+            if (LOG.isTraceEnabled())
+              LOG.trace("Proposal is out of bucket " + path);
             waitForSuitableBucket(new Runnable() {
               @Override
               public void run() {
@@ -408,7 +408,7 @@ public class ZkAgreementsStorage {
     while (exp != 0) {
       if ((exp & 1) == 1)
         result *= base;
-      exp--;
+      exp >>= 1;
       base *= base;
     }
     return result;

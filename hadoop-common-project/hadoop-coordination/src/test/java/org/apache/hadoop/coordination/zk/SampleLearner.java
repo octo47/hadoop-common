@@ -32,8 +32,8 @@ public class SampleLearner {
 
   public void updateState(long time) {
     agreementsCount++;
-    if (LOG.isDebugEnabled())
-      LOG.debug("Updated internalCount to: " + agreementsCount +
+    if (LOG.isTraceEnabled())
+      LOG.trace("Updated internalCount to: " + agreementsCount +
               " :: originally proposed @ " + time +
               " diff=" + (Time.now() - time));
   }
