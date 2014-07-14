@@ -30,6 +30,8 @@ import org.apache.zookeeper.data.Stat;
  */
 public class ZkAgreementsStorage {
 
+  private String zkBucketStatePath;
+
   public interface AgreementCallback {
     public void apply(long bucket, int seq, byte[] data) throws IOException;
   }
@@ -60,11 +62,12 @@ public class ZkAgreementsStorage {
     this.zkBucketDigits = zkBucketDigits;
     this.zkBucketAgreements = ipow(10, this.zkBucketDigits);
     this.zkAgreementsZNodeNamePrefix = ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PREFIX_PATH;
+    this.zkBucketStatePath = zkAgreementsPath + ZKConfigKeys.ZK_BUCKETS_STATE_PATH;
     this.defaultAcl = ZooDefs.Ids.OPEN_ACL_UNSAFE;
   }
 
   public void start() throws InterruptedException, IOException, KeeperException {
-    this.currentBucket.set(findSuitableBucket());
+    findSuitableBucket();
   }
 
   public synchronized void stop() {
@@ -93,14 +96,21 @@ public class ZkAgreementsStorage {
             String.format(Locale.ENGLISH, "%010d", cversion);
   }
 
-  public ListenableFuture<String> writeProposal(
-          final byte[] serialisedProposal
-  ) {
+  String getZkBucketStatePath() {
+    return zkBucketStatePath;
+  }
+
+  public ListenableFuture<String> writeProposal(final byte[] serialisedProposal) {
     final SettableFuture<String> resultFuture =
             SettableFuture.create();
+    return writeProposalInner(resultFuture, serialisedProposal);
+  }
+
+  private ListenableFuture<String> writeProposalInner(final SettableFuture<String> resultFuture,
+                                                      final byte[] serialisedProposal) {
     final ListenableFuture<String> async = zooKeeper.createAsync(
-            getZkAgreementBucketPath(currentBucket.get()), serialisedProposal,
-            defaultAcl, CreateMode.PERSISTENT);
+            getZkAgreementPathTemplate(currentBucket.get()), serialisedProposal,
+            defaultAcl, CreateMode.PERSISTENT_SEQUENTIAL);
     final FutureCallback<String> callback = new FutureCallback<String>() {
       @Override
       public void onSuccess(@Nonnull String path) {
@@ -115,7 +125,7 @@ public class ZkAgreementsStorage {
             waitForSuitableBucket(new Runnable() {
               @Override
               public void run() {
-                writeProposal(serialisedProposal);
+                writeProposalInner(resultFuture, serialisedProposal);
               }
             });
           }
@@ -140,53 +150,138 @@ public class ZkAgreementsStorage {
         @Override
         public void run() {
           try {
-            final long suitableBucket = findSuitableBucket();
-            final long bucket = currentBucket.get();
-            if (bucket < suitableBucket)
-              currentBucket.compareAndSet(bucket, suitableBucket);
-            // it's ok if bucket is not updated, some other thead can update it
-            // concurrently to bigger bucket
+            findSuitableBucket();
+            resolvedBucket.set(currentBucket.get());
           } catch (Exception e) {
             resolvedBucket.setException(e);
           }
+          resolvedBucket = null;
         }
       });
     }
     resolvedBucket.addListener(runnable, executor);
   }
 
-  public long findSuitableBucket() throws InterruptedException, IOException, KeeperException {
+  private void findSuitableBucket() throws InterruptedException, IOException, KeeperException {
     Stat bucketZNode;
-    long bucket = -1;
+    long bucket = currentBucket.get() + 1;
     do {
-      final String bucketStatePath = zkAgreementsPath + ZKConfigKeys.ZK_BUCKETS_STATE_PATH;
-      ZNode bucketData = zooKeeper.getData(bucketStatePath);
-      if (!bucketData.isExists()) {
-        LOG.info("Buckets not initialized yet, create new zero bucket");
-        zooKeeper.create(bucketStatePath,
-                ZkCoordinationProtocol.ZkBucketsState.newBuilder()
-                        .setBucketDigits(zkBucketDigits)
-                        .setMaxBucket(bucket + 1)
-                        .build().toByteArray(),
-                defaultAcl, CreateMode.PERSISTENT, true);
-        // read once more, it can happen if we are concurrent with other node
-        bucketData = zooKeeper.getData(bucketStatePath);
-      }
       final ZkCoordinationProtocol.ZkBucketsState bucketState =
-              ZkCoordinationProtocol.ZkBucketsState.parseFrom(bucketData.getData());
-      if (bucketState.getBucketDigits() != zkBucketDigits) {
-        throw new IllegalStateException("Inconsistent number of digits: stored "
-                + bucketState.getBucketDigits() + " vs " + zkBucketDigits);
+              getOrCreateState(bucket);
+
+      if (bucket < bucketState.getMaxBucket()) {
+        bucket = bucketState.getMaxBucket();
       }
-      bucket = bucketState.getMaxBucket();
-      // read stats for created bucket, if it already filled (too small buckets?),
-      // retry sequence
-      zooKeeper.create(getZkAgreementBucketPath(bucket),
+      createBucket(bucket); // just for sure
+
+      final String bucketPath = getZkAgreementBucketPath(bucket);
+      bucketZNode = zooKeeper.exists(bucketPath);
+      if (bucketZNode == null) {
+        throw new IllegalStateException("Bucket disappeared: " + bucketPath);
+      }
+      if (bucketZNode.getCversion() >= zkBucketAgreements)
+        bucket++;
+      else
+        break;
+    } while (true);
+    saveState(bucket);
+    currentBucket.set(bucket);
+    LOG.info("Using bucket " + currentBucket.get());
+  }
+
+  private void createBucket(long bucket) throws IOException, KeeperException, InterruptedException {
+    zooKeeper.create(getZkAgreementBucketPath(bucket),
+            EMPTY_BYTES,
+            defaultAcl, CreateMode.PERSISTENT, true);
+  }
+
+  private void saveState(long bucket) throws InterruptedException, IOException, KeeperException {
+    LOG.info("Saving bucket: " + bucket);
+    while (true) {
+      final ZNode bucketData = zooKeeper.getData(zkBucketStatePath);
+      if (bucketData.isExists()) {
+        final ZkCoordinationProtocol.ZkBucketsState savedState =
+                ZkCoordinationProtocol.ZkBucketsState.parseFrom(bucketData.getData());
+        if (savedState.getMaxBucket() < bucket) {
+          try {
+            final ZkCoordinationProtocol.ZkBucketsState newState =
+                    savedState.toBuilder().setMaxBucket(bucket).build();
+            zooKeeper.setData(zkBucketStatePath,
+                    newState.toByteArray(),
+                    bucketData.getStat().getVersion());
+            LOG.info("Saved bucket state: " + newState);
+            return;
+          } catch (KeeperException ke) {
+            if (ke.code() != KeeperException.Code.BADVERSION)
+              throw ke;
+            LOG.info("Conflict, retry for bucket state: " + savedState);
+          }
+        } else {
+          return;
+        }
+      } else {
+        getOrCreateState(bucket);
+      }
+    }
+  }
+
+  private ZkCoordinationProtocol.ZkBucketsState getOrCreateState(long defaultBucket)
+          throws InterruptedException, IOException, KeeperException {
+    final ZNode bucketData = zooKeeper.getData(zkBucketStatePath);
+    final ZkCoordinationProtocol.ZkBucketsState state;
+    if (!bucketData.isExists()) {
+      state = ZkCoordinationProtocol.ZkBucketsState.newBuilder()
+              .setBucketDigits(zkBucketDigits)
+              .setMaxBucket(defaultBucket)
+              .build();
+      LOG.info("Buckets not initialized yet, initializing at: " + zkBucketStatePath);
+      zooKeeper.create(zkBucketStatePath,
+              state.toByteArray(),
+              defaultAcl, CreateMode.PERSISTENT, true);
+    }
+    final ZNode stored = zooKeeper.getData(zkBucketStatePath);
+    return ZkCoordinationProtocol.ZkBucketsState.parseFrom(stored.getData());
+  }
+
+  private ZkCoordinationProtocol.ZkBucketsState initBucket(long bucket)
+          throws IOException, KeeperException, InterruptedException {
+
+    final byte[] stateBytes = ZkCoordinationProtocol.ZkBucketsState.newBuilder()
+            .setBucketDigits(zkBucketDigits)
+            .setMaxBucket(bucket)
+            .build().toByteArray();
+    ZNode bucketData = zooKeeper.getData(zkBucketStatePath);
+    if (!bucketData.isExists()) {
+      LOG.info("Buckets not initialized yet, initializing at: " + zkBucketStatePath);
+      zooKeeper.create(zkBucketStatePath,
+              stateBytes,
+              defaultAcl, CreateMode.PERSISTENT, true);
+    } else {
+      try {
+        zooKeeper.setData(zkBucketStatePath, stateBytes, bucketData.getStat().getVersion());
+      } catch (KeeperException ke) {
+        if (ke.code() != KeeperException.Code.BADVERSION) {
+          throw ke;
+        }
+        // ok, we have update by someone else
+      }
+    }
+    final ZkCoordinationProtocol.ZkBucketsState bucketState =
+            ZkCoordinationProtocol.ZkBucketsState.parseFrom(bucketData.getData());
+    if (bucketState.getBucketDigits() != zkBucketDigits) {
+      throw new IllegalStateException("Inconsistent number of digits: stored "
+              + bucketState.getBucketDigits() + " vs " + zkBucketDigits);
+    }
+
+
+    if (bucketState.getMaxBucket() >= bucket) {
+      final String bucketPath = getZkAgreementBucketPath(bucket);
+      LOG.info("Creating bucket at: " + bucketPath);
+      zooKeeper.create(bucketPath,
               EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
-      bucketZNode = zooKeeper.exists(getZkAgreementBucketPath(bucket));
-    } while (bucketZNode.getCversion() >= zkBucketAgreements);
-    LOG.info("Using bucket " + bucket);
-    return bucket;
+      zooKeeper.setData(zkBucketStatePath, stateBytes, bucketData.getStat().getVersion());
+    }
+    return bucketState;
   }
 
   public void iterateAgreements(long lastBucket, int lastSeq, int batchSize, AgreementCallback cb)
@@ -274,7 +369,7 @@ public class ZkAgreementsStorage {
       throw new IllegalArgumentException(
               "Path should not be less then 10 chars: " + znodeName);
     final String bucket = znodeName.substring(len - 10, len - zkBucketDigits);
-    for (int i = 0; i < bucket.length(); i++) {
+    for (int i = bucket.length() - 1; i >= 0; i--) {
       if (bucket.charAt(i) != '0')
         return false;
     }
