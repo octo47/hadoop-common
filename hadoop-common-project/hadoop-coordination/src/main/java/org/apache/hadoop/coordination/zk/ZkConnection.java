@@ -265,6 +265,24 @@ public class ZkConnection implements Closeable, Watcher {
   }
 
   /**
+   * Create node with specified parameters.
+   * If mode is nonsequential, will retry operation (operation considered indempotent)
+   *
+   * @param path  path to create (or prefix, in case of sequential)
+   * @param bytes payload
+   * @param acl   acl assign to znode
+   * @param mode  create mode
+   * @param ignoreNodeExists don't fail if node already exists
+   * @return resulting path
+   * @throws IOException
+   * @throws KeeperException
+   */
+  public String create(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode, boolean ignoreNodeExists)
+          throws IOException, KeeperException, InterruptedException {
+    return waitForFeature(createAsync(path, bytes, acl, mode, ignoreNodeExists));
+  }
+
+  /**
    * Asynchronous version of create().
    *
    * @param path  path to create (or prefix, in case of sequential)

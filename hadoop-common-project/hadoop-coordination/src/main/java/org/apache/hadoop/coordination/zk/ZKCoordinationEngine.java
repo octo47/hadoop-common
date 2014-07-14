@@ -25,16 +25,17 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.management.ManagementFactory;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Function;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
@@ -62,6 +63,11 @@ public class ZKCoordinationEngine extends AbstractService
         implements CoordinationEngine, Watcher {
   public static final Log LOG = LogFactory.getLog(ZKCoordinationEngine.class);
 
+
+  public static final byte[] EMPTY_BYTES = new byte[0];
+
+  public static final int ZK_POLL_INTERVAL_MS = 100;
+
   /**
    * Used as invalid GSN (normal GSNs should start with 0
    * and increment monotonically with each new agreement.
@@ -74,37 +80,39 @@ public class ZKCoordinationEngine extends AbstractService
    */
   public static final int INVALID_SEQ = -1;
 
-  public static final byte[] EMPTY_BYTES = new byte[0];
-
-
-  private String localNodeId;
-  private String instanceId;
-  private String zkRootPath;
-  private String zkAgreementsPath;
-  private String zkAgreementsPathTemplate;
-  private String zkGsnPath;
-  private String zkGsnZNode;
-  private int zookeeperSessionTimeout;
-  private AgreementHandler<?> handler;
-  private String zkConnectString;
-  private int zkBatchSize;
-  private boolean zkBatchCommit;
-
-  private final Semaphore learnerCanProceed = new Semaphore(0);
-  private Thread learnerThread;
-
-  private ZkConnection zooKeeper;
-
   /**
    * True if this instance of Coordination Engine is executing agreements.
    */
   private volatile boolean isLearning;
 
+  private String localNodeId;
+  private String instanceId;
+  private String zkRootPath;
+  private String zkAgreementsPath;
+  private String zkGsnPath;
+  private String zkGsnZNode;
+  private int zookeeperSessionTimeout;
+  private AgreementHandler<?> handler;
+  private String zkConnectString;
+  private int zkBucketDigits;
+  private int zkBatchSize;
+  private boolean zkBatchCommit;
+
+  private final Semaphore learnerCanProceed = new Semaphore(0);
+  private Thread learnerThread;
+  private ZkAgreementsStorage storage;
+
+  private ZkConnection zooKeeper;
+  private ExecutorService executor = Executors.newSingleThreadExecutor();
+
+  private volatile Stat gsnNodeStat = null;
   private volatile ZkCoordinationProtocol.ZkGsnState currentGSN =
           ZkCoordinationProtocol.ZkGsnState.newBuilder()
-                  .setGsn(0)
+                  .setGsn(INVALID_GSN)
                   .setSeq(INVALID_SEQ)
+                  .setBucket(0)
                   .build();
+
 
   public ZKCoordinationEngine(String name) {
     super(name);
@@ -134,11 +142,12 @@ public class ZKCoordinationEngine extends AbstractService
             ZKConfigKeys.CE_ZK_QUORUM_PATH_DEFAULT));
     this.zkAgreementsPath = ensureNoEndingSlash(zkRootPath +
             ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PATH);
-    this.zkAgreementsPathTemplate = zkAgreementsPath +
-            ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PREFIX_PATH;
     this.zkGsnPath = ensureNoEndingSlash(zkRootPath +
             ZKConfigKeys.CE_ZK_GSN_ZNODE_PATH);
     this.zkGsnZNode = zkGsnPath + "/" + localNodeId;
+
+    this.zkBucketDigits = conf.getInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY,
+            ZKConfigKeys.CE_ZK_BUCKET_DIGITS_DEFAULT);
 
     LOG.info("CE parameters: batch=" + zkBatchSize);
   }
@@ -150,18 +159,25 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   protected void serviceStart() throws Exception {
+    super.serviceStart();
     try {
       zooKeeper = new ZkConnection(
               zkConnectString,
               getZooKeeperSessionTimeout());
+
       initStorage();
+
       zooKeeper.addWatcher(this);
-      LOG.info("Set current GSN to: " + currentGSN + ", zk session 0x" +
+      LOG.info("Сurrent GSN to: " + currentGSN + ", zk session 0x" +
               Long.toHexString(zooKeeper.getSessionId()));
+      this.storage = new ZkAgreementsStorage(zooKeeper, zkAgreementsPath,
+              zkBucketDigits, executor);
+      this.storage.start();
     } catch (Exception e) {
-      stopZk();
+      serviceStop();
       throw new IOException("Cannot start ZKCoordinationEngine", e);
     }
+
     resumeLearning();
     LOG.info("Started ZKCoordinationEngine.");
     learnerCanProceed.release();
@@ -169,9 +185,14 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   protected void serviceStop() throws Exception {
+    if (storage != null) {
+      storage.stop();
+      storage = null;
+    }
     pauseLearning();
     stopZk();
     isLearning = false;
+    super.serviceStop();
     LOG.info("Stopped ZKCoordinationEngine.");
   }
 
@@ -190,16 +211,17 @@ public class ZKCoordinationEngine extends AbstractService
         zooKeeper.create(zkGsnPath, EMPTY_BYTES,
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
-      // holding ephemeral lock for give nodeId
+      // holding ephemeral lock for given nodeId
       zooKeeper.create(zkGsnPath + ".alive", instanceId.getBytes(),
               ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
-      currentGSN = createOrGetGlobalSequenceNumber(currentGSN);
+      createOrGetGlobalSequenceNumber();
     } catch (KeeperException e) {
       throw new QuorumInitializationException("Can't init zk storage", e);
     }
   }
 
-  private int getZooKeeperSessionTimeout() {
+
+  public int getZooKeeperSessionTimeout() {
     return zookeeperSessionTimeout;
   }
 
@@ -211,10 +233,6 @@ public class ZKCoordinationEngine extends AbstractService
     return zkAgreementsPath;
   }
 
-  public String getZkAgreementsPathTemplate() {
-    return zkAgreementsPathTemplate;
-  }
-
   public String getZkGsnPath() {
     return zkGsnPath;
   }
@@ -224,8 +242,10 @@ public class ZKCoordinationEngine extends AbstractService
   }
 
   private synchronized void stopZk() {
-    zooKeeper.close();
-    zooKeeper = null;
+    if (zooKeeper != null) {
+      zooKeeper.close();
+      zooKeeper = null;
+    }
   }
 
   @Override
@@ -239,35 +259,6 @@ public class ZKCoordinationEngine extends AbstractService
     return localNodeId;
   }
 
-  private Function<String, ProposalReturnCode> processCreatedProposalPath =
-          new Function<String, ProposalReturnCode>() {
-            @Override
-            public ProposalReturnCode apply(@Nullable String input) {
-              if (LOG.isTraceEnabled())
-                LOG.trace("Proposal submitted to " + input);
-              return ProposalReturnCode.OK;
-            }
-          };
-
-  public Future<ProposalReturnCode> subminProposalAsync(Proposal proposal)
-          throws ProposalNotAcceptedException {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    ObjectOutputStream oos;
-    try {
-      // Serialize proposal.
-      oos = new ObjectOutputStream(baos);
-      oos.writeObject(proposal);
-      byte[] serializedProposal = baos.toByteArray();
-      // Write proposal to znode
-
-      return Futures.lazyTransform(
-              zooKeeper.createAsync(zkAgreementsPathTemplate, serializedProposal,
-                      ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL),
-              processCreatedProposalPath);
-    } catch (Exception e) {
-      throw new ProposalNotAcceptedException("Cannot create ZooKeeper", e);
-    }
-  }
 
   @Override
   public ProposalReturnCode submitProposal(Proposal proposal,
@@ -277,9 +268,39 @@ public class ZKCoordinationEngine extends AbstractService
     if (checkQuorum) {
       checkQuorum();
     }
-    return Futures.get(subminProposalAsync(proposal),
+    return Futures.get(submitProposalAsync(proposal),
             getZooKeeperSessionTimeout(), TimeUnit.MILLISECONDS,
             ProposalNotAcceptedException.class);
+  }
+
+  private final static Function<String, ProposalReturnCode> okConstF = new Function<String, ProposalReturnCode>() {
+    @Override
+    public ProposalReturnCode apply(@Nullable String input) {
+      return ProposalReturnCode.OK;
+    }
+  };
+
+  public Future<ProposalReturnCode> submitProposalAsync(Proposal proposal)
+  throws ProposalNotAcceptedException {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    ObjectOutputStream oos;
+    try {
+      // Serialize proposal.
+      oos = new ObjectOutputStream(baos);
+      oos.writeObject(proposal);
+      byte[] serializedProposal = baos.toByteArray();
+
+      final ListenableFuture<String> proposalFuture =
+              storage.writeProposal(serializedProposal);
+
+      return FutureUtils.onSuccess(
+              proposalFuture,
+              okConstF,
+              executor);
+
+    } catch (Exception e) {
+      throw new ProposalNotAcceptedException("Cannot accept proposal", e);
+    }
   }
 
   @Override
@@ -289,7 +310,7 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   public boolean canRecoverAgreements() {
-    return true;
+    return storage.canRecoverAgreements(currentGSN.getBucket());
   }
 
   @Override
@@ -342,18 +363,19 @@ public class ZKCoordinationEngine extends AbstractService
     }
   }
 
-  private ZkCoordinationProtocol.ZkGsnState createOrGetGlobalSequenceNumber(
-          ZkCoordinationProtocol.ZkGsnState initialState) throws IOException, InterruptedException {
+  private synchronized void createOrGetGlobalSequenceNumber()
+          throws IOException, InterruptedException {
 
     final ZNode data;
     try {
       data = zooKeeper.getData(zkGsnZNode);
       if (!data.isExists()) {
-        zooKeeper.create(zkGsnZNode, initialState.toByteArray(),
+        zooKeeper.create(zkGsnZNode, currentGSN.toByteArray(),
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        return initialState;
+        gsnNodeStat = zooKeeper.exists(zkGsnZNode);
       } else {
-        return ZkCoordinationProtocol.ZkGsnState.parseFrom(data.getData());
+        gsnNodeStat = data.getStat();
+        currentGSN = ZkCoordinationProtocol.ZkGsnState.parseFrom(data.getData());
       }
     } catch (KeeperException e) {
       throw new IOException("Failed", e);
@@ -364,8 +386,6 @@ public class ZKCoordinationEngine extends AbstractService
     if(!isLearning) {
       return;
     }
-    String path = event.getPath();
-
     if (event.getType() == Event.EventType.None) {
       // We are are being told that the state of the
       // connection has changed
@@ -395,14 +415,6 @@ public class ZKCoordinationEngine extends AbstractService
           LOG.error("Unexpected event state: " + event);
           break;
       }
-    } else if(event.getType() == Event.EventType.NodeDataChanged) {
-      if (path.startsWith(getZkGsnPath())) {
-        LOG.info("Detected GSN node updated: " + path);
-      }
-    } else if(event.getType() == Event.EventType.NodeCreated) {
-      if (path.startsWith(getZkAgreementsPathTemplate())) {
-        LOG.info("Detected node created: " + path);
-      }
     }
     learnerCanProceed.release();
   }
@@ -423,7 +435,7 @@ public class ZKCoordinationEngine extends AbstractService
     public void run() {
       while (isLearning) {
         try {
-          learnerCanProceed.tryAcquire(100, TimeUnit.MILLISECONDS);
+          learnerCanProceed.tryAcquire(ZK_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
           learnerCanProceed.drainPermits();
           executeAgreements();
         } catch (InterruptedException e) {
@@ -444,62 +456,34 @@ public class ZKCoordinationEngine extends AbstractService
         if (!isLearning)
           return;
         try {
-          // first figure out how many pending aggrements are waiting,
-          // that can be found from parent node cversion and last
-          // cversion which we saw
-          final List<Future<ZNode>> futures = new ArrayList<Future<ZNode>>();
-          final ZNode agreementsData = zooKeeper.getData(zkAgreementsPath);
-          final int start = currentGSN.getSeq() + 1;
-          // ensure don't take whole zk database in one turn
-          final int end = Math.min(
-                  agreementsData.getStat().getCversion(),
-                  start + zkBatchSize);
-          if (end - start < 1)
-            break;
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Executing agreements");
-            LOG.debug("Expected iteration from " + start + " to " + end);
-          }
-          for (int seq = start; seq < end; seq++) {
-            futures.add(zooKeeper.getDataAsync(getExpectedAgreementZNodePath(seq), false));
-          }
-          for (int seq = start; seq < end; seq++) {
-            final Future<ZNode> future = futures.get(seq - start);
-            final ZNode proposal = Futures.get(future,
-                    zookeeperSessionTimeout, TimeUnit.MILLISECONDS, IOException.class);
-            if (!proposal.isExists()) {
-              throw new IOException("No agreement found for seq " + seq
-                      + " in " + zkAgreementsPath);
-            }
-            try {
-              ObjectInputStream ois = new ObjectInputStream(
-                      new ByteArrayInputStream(proposal.getData()));
-              Object obj = ois.readObject();
-              if (!(obj instanceof Agreement<?, ?>))
-                throw new IOException("Expecting Agreement type, but got " + obj);
-              Agreement<?, ?> agreement = (Agreement<?, ?>) obj;
+          storage.iterateAgreements(
+                  currentGSN.getBucket(),
+                  currentGSN.getSeq(),
+                  zkBatchSize,
+                  new ZkAgreementsStorage.AgreementCallback() {
+                    @Override
+                    public void apply(long bucket, int seq, byte[] data) throws IOException {
+                      try {
+                        ObjectInputStream ois = new ObjectInputStream(
+                                new ByteArrayInputStream(data));
+                        Object obj = ois.readObject();
+                        if (!(obj instanceof Agreement<?, ?>))
+                          throw new IOException("Expecting Agreement type, but got " + obj);
+                        Agreement<?, ?> agreement = (Agreement<?, ?>) obj;
 
-              applyAgreement(seq, agreement);
-              if (!zkBatchCommit)
-                updateCurrentGSN();
-            } catch (Exception e) {
-              throw new IOException("Cannot obtain agreement data: ", e);
-            }
-          }
+                        applyAgreement(bucket, seq, agreement);
+                        if (!zkBatchCommit)
+                          updateCurrentGSN();
+                      } catch (Exception e) {
+                        throw new IOException("Cannot obtain agreement data: ", e);
+                      }
+                    }
+                  });
           if (zkBatchCommit)
             updateCurrentGSN();
-          final int expectedSeq = currentGSN.getSeq() + 1;
-          String nextProposal = getExpectedAgreementZNodePath(expectedSeq);
-          Stat stat;
-          try {
-            stat = zooKeeper.exists(nextProposal, true);
-          } catch (Exception e) {
-            throw new IOException("Cannot obtain stat for: " + nextProposal, e);
-          }
-          if (stat == null) {
-            LOG.info("Registered for: " + nextProposal);
+
+          if (!storage.watchNextAgreement(currentGSN.getBucket(), currentGSN.getSeq()))
             break;
-          }
         } catch (KeeperException e) {
           throw new IOException("Agreements path missed");
         }
@@ -509,10 +493,11 @@ public class ZKCoordinationEngine extends AbstractService
       } while (isLearning);
     }
 
-    private synchronized void applyAgreement(int seq, Agreement<?, ?> agreement)
-            throws IOException, KeeperException, InterruptedException {
+    private synchronized void applyAgreement(long bucket, int seq, Agreement<?, ?> agreement)
+    throws IOException, KeeperException, InterruptedException {
       currentGSN = ZkCoordinationProtocol.ZkGsnState.newBuilder()
               .setGsn(currentGSN.getGsn() + 1)
+              .setBucket(bucket)
               .setSeq(seq)
               .build();
       if (LOG.isTraceEnabled())
@@ -520,17 +505,14 @@ public class ZKCoordinationEngine extends AbstractService
       handler.executeAgreement(agreement);
     }
 
-    private String getExpectedAgreementZNodePath(int cversion) {
-      return zkAgreementsPathTemplate +
-              String.format(Locale.ENGLISH, "%010d", cversion);
-    }
   }
 
   private void updateCurrentGSN()
           throws InterruptedException, IOException, KeeperException {
     if (LOG.isTraceEnabled())
       LOG.trace("Saving agreement, set GSN to " + currentGSN.toString());
-    zooKeeper.setData(zkGsnZNode, currentGSN.toByteArray(), -1);
+    gsnNodeStat = zooKeeper.setData(zkGsnZNode,
+            currentGSN.toByteArray(), gsnNodeStat.getVersion());
   }
 
   private static String ensureNoEndingSlash(String path) {
@@ -540,4 +522,5 @@ public class ZKCoordinationEngine extends AbstractService
     else
       return path;
   }
+
 }

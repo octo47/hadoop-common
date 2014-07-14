@@ -28,5 +28,11 @@ option java_generate_equals_and_hash = true;
 
 message ZkGsnState {
   required sint64 gsn = 1;
-  required sint32 seq = 2;
+  required sint64 bucket = 2;
+  required sint32 seq = 3;
+}
+
+message ZkBucketsState {
+  required sint64 maxBucket = 1;
+  required sint32 bucketDigits = 2;
 }

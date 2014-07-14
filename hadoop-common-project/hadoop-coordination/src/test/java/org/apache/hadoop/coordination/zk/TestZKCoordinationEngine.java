@@ -17,10 +17,6 @@
  */
 package org.apache.hadoop.coordination.zk;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
@@ -37,6 +33,10 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Test for {@link ZKCoordinationEngine}.
@@ -66,7 +66,7 @@ public class TestZKCoordinationEngine {
   /**
    * Submits single proposal and verifies that agreement was reached.
    */
-  @Test(timeout = 2000)
+  @Test
   public void testSimpleProposals() throws IOException, KeeperException,
       InterruptedException {
 
@@ -76,6 +76,7 @@ public class TestZKCoordinationEngine {
         new File(System.getProperty("test.build.dir", "target/test-dir"),
             "testSimpleProposals"), 1);
 
+    conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
     ZKCoordinationEngine cEngine = new ZKCoordinationEngine("ce");
     cEngine.init(conf);
     SampleLearner myLearner = new SampleLearner();
@@ -83,17 +84,20 @@ public class TestZKCoordinationEngine {
     cEngine.start();
     Assert.assertEquals(Service.STATE.STARTED, cEngine.getServiceState());
 
-    SampleProposal scp = new SampleProposal(proposerNodeId);
-    scp.setUser("abc");
-    cEngine.submitProposal(scp, true);
+    final int proposalsToSubmit = 20;
+    for (int i = 0; i < proposalsToSubmit; i++) {
+      SampleProposal scp = new SampleProposal(proposerNodeId);
+      scp.setUser("user" + i);
+      cEngine.submitProposal(scp, true);
+    }
 
-    while (cEngine.getGlobalSequenceNumber() == 0) {
+    while (cEngine.getGlobalSequenceNumber() < proposalsToSubmit) {
       LOG.info("Waiting for coordination engine to learn agreement");
       Thread.sleep(100);
     }
 
     assertEquals("Coordination Engine GSN hasn't been updated properly",
-      1, cEngine.getGlobalSequenceNumber());
+            proposalsToSubmit, cEngine.getGlobalSequenceNumber());
 
     // check state in ZK
     ZooKeeper zk = new ZooKeeper(
@@ -104,7 +108,7 @@ public class TestZKCoordinationEngine {
 
     awaitLearner(cEngine, zk, nodeGlobalSeqNumZNodePath);
 
-    checkAgreemetsCountStoredInZk(cEngine, zk, 1);
+    checkAgreemetsCountStoredInZk(cEngine, zk, proposalsToSubmit);
 
     cEngine.stop();
   }
@@ -238,13 +242,13 @@ public class TestZKCoordinationEngine {
 
   private void checkAgreemetsCountStoredInZk(ZKCoordinationEngine cEngine, ZooKeeper zk, int expected)
           throws KeeperException, InterruptedException {
-    List<String> agreementZnodes = zk.getChildren(cEngine.getZkAgreementsPath(), null);
+    List<String> bucketZNode = zk.getChildren(cEngine.getZkAgreementsPath(), null);
     int numAgreementZnodes = 0;
 
-    for (String s : agreementZnodes) {
-      if (s.startsWith(ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PREFIX_PATH.substring(1))) {
-        numAgreementZnodes++;
-      }
+    for (String s : bucketZNode) {
+      final List<String> bucketChilds =
+              zk.getChildren(cEngine.getZkAgreementsPath() + "/" + s, null);
+      numAgreementZnodes+=bucketChilds.size();
     }
     assertEquals("Total number of agreements in ZooKeeper is wrong:",
             expected, numAgreementZnodes);

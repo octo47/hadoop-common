@@ -41,7 +41,7 @@ public class ZKConfigKeys {
    */
   public static final String CE_ZK_SESSION_TIMEOUT_KEY =
     "ce.zk.session.timeout";
-  public static final int CE_ZK_SESSION_TIMEOUT_DEFAULT = 3000;
+  public static final int CE_ZK_SESSION_TIMEOUT_DEFAULT = 30000;
 
   /**
    * Key for ZK batch size.
@@ -56,6 +56,18 @@ public class ZKConfigKeys {
   public static final String CE_ZK_BATCH_COMMIT_KEY =
           "ce.zk.batch.commit";
   public static final boolean CE_ZK_BATCH_COMMIT_DEFAULT = false;
+
+  /**
+   * Number for bucket decimal digits in znode sequence, that limits
+   * number of allowed agreements per bucket. That is 10^digits.
+   * Cannot be changed after CE initialized.
+   */
+  public static final String CE_ZK_BUCKET_DIGITS_KEY = "ce.zk.bucket.digits";
+
+  /**
+   * Defaults to 10k agreements per bucket (4 digits of an agreement seq)
+   */
+  public static final int CE_ZK_BUCKET_DIGITS_DEFAULT = 4;
 
   /**
    * Unique ID of the node for coordination engine. No default value.
@@ -76,4 +88,9 @@ public class ZKConfigKeys {
    * Default sub znode, containing quorum members state (GSN f.e.)
    */
   public static final String CE_ZK_GSN_ZNODE_PATH = "/gsn";
+
+  /**
+   * ZNode for bucket states storage.
+   */
+  public static final String ZK_BUCKETS_STATE_PATH = "/buckets.state";
 }
