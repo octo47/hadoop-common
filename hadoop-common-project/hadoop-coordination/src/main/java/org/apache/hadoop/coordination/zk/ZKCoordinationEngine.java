@@ -103,7 +103,7 @@ public class ZKCoordinationEngine extends AbstractService
   private ZkAgreementsStorage storage;
 
   private ZkConnection zooKeeper;
-  private ExecutorService executor = Executors.newSingleThreadExecutor();
+  private ExecutorService executor;
 
   private volatile Stat gsnNodeStat = null;
   private volatile ZkCoordinationProtocol.ZkGsnState currentGSN =
@@ -131,6 +131,7 @@ public class ZKCoordinationEngine extends AbstractService
       throw new HadoopIllegalArgumentException("Please define a value for: "
               + ZKConfigKeys.CE_ZK_NODE_ID_KEY);
     }
+    this.executor = Executors.newCachedThreadPool();
     this.zkConnectString = conf.get(ZKConfigKeys.CE_ZK_QUORUM_KEY,
             ZKConfigKeys.CE_ZK_QUORUM_DEFAULT);
     this.instanceId = ManagementFactory.getRuntimeMXBean().getName();

@@ -103,7 +103,34 @@ public class ZkAgreementsStorage {
   public ListenableFuture<String> writeProposal(final byte[] serialisedProposal) {
     final SettableFuture<String> resultFuture =
             SettableFuture.create();
-    return writeProposalInner(resultFuture, serialisedProposal);
+    return writeProposalCheck(resultFuture, serialisedProposal);
+  }
+
+  private ListenableFuture<String> writeProposalCheck(final SettableFuture<String> resultFuture,
+                                                      final byte[] serialisedProposal) {
+    final ListenableFuture<Stat> checkFuture =
+            zooKeeper.existsAsync(getZkAgreementBucketPath(currentBucket.get()), false);
+    Futures.addCallback(checkFuture, new FutureCallback<Stat>() {
+      @Override
+      public void onSuccess(@Nonnull Stat stat) {
+        if (stat.getCversion() < zkBucketAgreements) {
+//          LOG.debug("Got correct version " + stat.getCversion());
+          writeProposalInner(resultFuture, serialisedProposal);
+        } else
+          waitForSuitableBucket(new Runnable() {
+            @Override
+            public void run() {
+              writeProposalCheck(resultFuture, serialisedProposal);
+            }
+          });
+      }
+
+      @Override
+      public void onFailure(Throwable t) {
+        resultFuture.setException(t);
+      }
+    });
+    return resultFuture;
   }
 
   private ListenableFuture<String> writeProposalInner(final SettableFuture<String> resultFuture,
@@ -352,7 +379,7 @@ public class ZkAgreementsStorage {
       throw new IOException("Cannot obtain stat for: " + nextProposal, e);
     }
     if (stat != null) {
-      LOG.debug("Next agreement already exists: " + nextProposal);
+      LOG.debug("Next agreement exists already: " + nextProposal);
       return true;
     }
     return false;
