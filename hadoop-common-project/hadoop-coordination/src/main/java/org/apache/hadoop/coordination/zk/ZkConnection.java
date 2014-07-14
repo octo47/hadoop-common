@@ -8,7 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -16,6 +16,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -57,14 +59,22 @@ public class ZkConnection implements Closeable, Watcher {
   // TODO: replace with path specific listeners
   private final Set<Watcher> watchers = new LinkedHashSet<Watcher>();
 
+  private final ExecutorService executor;
+
   public int getSessionTimeout() {
     return sessionTimeout;
   }
 
   public ZkConnection(String quorumString, int sessionTimeout)
           throws IOException {
+    this(quorumString, sessionTimeout, MoreExecutors.sameThreadExecutor());
+  }
+
+  public ZkConnection(String quorumString, int sessionTimeout, ExecutorService executor)
+          throws IOException {
     this.quorumString = quorumString;
     this.sessionTimeout = sessionTimeout;
+    this.executor = executor;
     // assume we have rights for read in chroot
     String parsedChroot = new ConnectStringParser(quorumString).getChrootPath();
     if (parsedChroot == null)
@@ -170,7 +180,7 @@ public class ZkConnection implements Closeable, Watcher {
    * @return Future
    * @see #exists(String)
    */
-  public Future<Stat> existsAsync(String path, boolean watch) {
+  public ListenableFuture<Stat> existsAsync(String path, boolean watch) {
     final ExistsOp op = new ExistsOp(path, watch);
     op.submitAsyncOperation();
     return op;
@@ -194,6 +204,36 @@ public class ZkConnection implements Closeable, Watcher {
   }
 
   /**
+   * Async version of getChildren()
+   * @param path to get children for
+   * @param watch if true, subscribe for changes
+   * @return Future with ZNode
+   * @see #addWatcher(String, org.apache.zookeeper.Watcher)
+   */
+  public ListenableFuture<List<String>> getChildrenAsync(String path, boolean watch) {
+    final GetChildrenOp op = new GetChildrenOp(path, watch);
+    op.submitAsyncOperation();
+    return op;
+  }
+
+  /**
+   * Get children will retry on connection loss.
+   *
+   * @param path path to get children for
+   * @return ZNode object
+   * @throws IOException
+   * @throws KeeperException
+   * @see org.apache.hadoop.coordination.zk.ZNode
+   */
+  public List<String> getChildren(String path) throws IOException, KeeperException, InterruptedException {
+    return waitForFeature(getChildrenAsync(path, false));
+  }
+
+  public List<String> getChildren(String path, boolean watch) throws IOException, KeeperException, InterruptedException {
+    return waitForFeature(getChildrenAsync(path, watch));
+  }
+
+  /**
    * Async version of getData()
    * @param path to get data for
    * @param watch if true, subscribe for changes
@@ -201,7 +241,7 @@ public class ZkConnection implements Closeable, Watcher {
    * @see #getData(String)
    * @see #addWatcher(String, org.apache.zookeeper.Watcher)
    */
-  public Future<ZNode> getDataAsync(String path, boolean watch) {
+  public ListenableFuture<ZNode> getDataAsync(String path, boolean watch) {
     final GetDataOp op = new GetDataOp(path, watch);
     op.submitAsyncOperation();
     return op;
@@ -233,8 +273,15 @@ public class ZkConnection implements Closeable, Watcher {
    * @param mode  create mode
    * @return Future for resulting path
    */
-  public Future<String> createAsync(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode) {
-    final CreateOp op = new CreateOp(path, bytes, acl, mode);
+  public ListenableFuture<String> createAsync(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode) {
+    final CreateOp op = new CreateOp(path, bytes, acl, mode, false);
+    op.submitAsyncOperation();
+    return op;
+  }
+
+  public ListenableFuture<String> createAsync(String path, byte[] bytes, ArrayList<ACL> acl, CreateMode mode,
+                                              boolean ignoreExists) {
+    final CreateOp op = new CreateOp(path, bytes, acl, mode, ignoreExists);
     op.submitAsyncOperation();
     return op;
   }
@@ -243,7 +290,7 @@ public class ZkConnection implements Closeable, Watcher {
     return waitForFeature(setDataAsync(path, bytes, version));
   }
 
-  public Future<Stat> setDataAsync(String path, byte[] bytes, int version) {
+  public ListenableFuture<Stat> setDataAsync(String path, byte[] bytes, int version) {
     final SetDataOp op = new SetDataOp(path, bytes, version);
     op.submitAsyncOperation();
     return op;
@@ -257,7 +304,7 @@ public class ZkConnection implements Closeable, Watcher {
     waitForFeature(deleteAsync(path, version));
   }
 
-  public Future<Void> deleteAsync(String path, int version) {
+  public ListenableFuture<Void> deleteAsync(String path, int version) {
     final DeleteOp op = new DeleteOp(path, version);
     op.submitAsyncOperation();
     return op;
@@ -288,7 +335,7 @@ public class ZkConnection implements Closeable, Watcher {
 
   }
 
-  private <R> R waitForFeature(Future<R> op) throws IOException, KeeperException, InterruptedException {
+  private <R> R waitForFeature(ListenableFuture<R> op) throws IOException, KeeperException, InterruptedException {
     try {
       return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
     } catch (ExecutionException e) {
@@ -307,7 +354,7 @@ public class ZkConnection implements Closeable, Watcher {
    *
    * @param <R> return type
    */
-  public abstract class ZkOperationFuture<V> extends AbstractFuture<V> implements TimerTask {
+  public abstract class ZkOperationFuture<V> extends AbstractFuture<V> implements Runnable {
 
     /**
      * Return description of current operation.
@@ -341,7 +388,12 @@ public class ZkConnection implements Closeable, Watcher {
             if (!isIdempotent()) // don't retry for non-idempotent operations
               rc = super.setException(cause);
             else {
-              timer.newTimeout(this, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
+              timer.newTimeout(new TimerTask() {
+                @Override
+                public void run(Timeout timeout) throws Exception {
+                  executor.submit(ZkOperationFuture.this);
+                }
+              }, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
               rc = false;
             }
             break;
@@ -361,7 +413,7 @@ public class ZkConnection implements Closeable, Watcher {
     }
 
     @Override
-    final public void run(Timeout timeout) throws Exception {
+    final public void run() {
       submitAsyncOperation();
     }
   }
@@ -411,21 +463,25 @@ public class ZkConnection implements Closeable, Watcher {
     private final byte[] bytes;
     private final List<ACL> acl;
     private final CreateMode mode;
+    private final boolean ignoreExists;
 
     @Override
     public void processResult(int rc, String path, Object ctx, String name) {
       final KeeperException.Code code = KeeperException.Code.get(rc);
       if (isSuccess(code)) {
         set(name);
+      } else if (ignoreExists && isNodeExists(code)) {
+        set(name);
       } else {
         setException(KeeperException.create(code));
       }
     }
 
-    public CreateOp(String path, byte[] bytes, List<ACL> acl, CreateMode mode) {
+    public CreateOp(String path, byte[] bytes, List<ACL> acl, CreateMode mode, boolean ignoreExists) {
       this.path = path;
       this.bytes = bytes;
       this.mode = mode;
+      this.ignoreExists = ignoreExists;
       this.acl = Lists.newArrayList(acl);
     }
 
@@ -518,10 +574,44 @@ public class ZkConnection implements Closeable, Watcher {
 
     @Override
     public String getDescription() {
-      return "exists(" + path + ")";
+      return "getData(" + path + ")";
     }
   }
 
+  /**
+   * Future for getChildren() operation
+   */
+  public class GetChildrenOp extends ZkOperationFuture<List<String>> implements AsyncCallback.ChildrenCallback {
+
+    @Override
+    public void processResult(int rc, String path, Object ctx, List<String> children) {
+      final KeeperException.Code code = KeeperException.Code.get(rc);
+      if (isSuccess(code)) {
+        set(children);
+      } else {
+        setException(KeeperException.create(code));
+      }
+    }
+
+    private final String path;
+    private final boolean watch;
+
+    public GetChildrenOp(String path, boolean watch) {
+      this.path = path;
+      this.watch = watch;
+    }
+
+    @Override
+    public void submitAsyncOperation() {
+      zk.getChildren(path, watch ? ZkConnection.this : null, this, this);
+    }
+
+    @Override
+    public String getDescription() {
+      return "getChildren(" + path + ")";
+    }
+
+  }
 
   /**
    * Future for setData() operation
@@ -559,7 +649,7 @@ public class ZkConnection implements Closeable, Watcher {
 
     @Override
     public String getDescription() {
-      return "setData(" + path + ", " + version + ")";
+      return "delete(" + path + ", " + version + ")";
     }
   }
 

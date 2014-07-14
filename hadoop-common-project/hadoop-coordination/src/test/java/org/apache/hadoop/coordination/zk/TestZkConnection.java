@@ -17,6 +17,7 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -98,14 +99,24 @@ public class TestZkConnection {
       }
     });
 
+    // Testing setdata
     String outoforder = zkcon.create("/test1/node-added", EMPTY_BYTES,
             ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+    final String hello = "Hello";
+    zkcon.setData("/test1/node-added", hello.getBytes("UTF-8"), -1);
+    final ZNode data = zkcon.getData("/test1/node-added");
+    Assert.assertTrue(data.isExists());
+    Assert.assertEquals(new String(data.getData(), "UTF-8"), hello);
+
+    // out of order child insertion should bump node version
     String path2 = zkcon.create("/test1/abc-", EMPTY_BYTES,
             ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
     Assert.assertEquals("/test1/abc-0000000002", path2);
     Assert.assertEquals(4, zkcon.getData("/test1").getStat().getCversion());
 
     Assert.assertTrue(fired.await(1, TimeUnit.SECONDS));
+
+    Assert.assertEquals(2, zkcon.getChildren("/test1").size());
 
     zkcon.close();
   }
