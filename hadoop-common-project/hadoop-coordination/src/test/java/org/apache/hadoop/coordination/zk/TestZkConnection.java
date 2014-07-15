@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.coordination.NoQuorumException;
@@ -201,6 +202,68 @@ public class TestZkConnection {
   }
 
   @Test
+  public void testGetChildren()
+          throws InterruptedException, IOException, KeeperException, ExecutionException {
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+
+    final String path = "/abc";
+    final List<String> payload = Lists.newArrayList("node1", "node2");
+    // check existent node
+    {
+      final ZkConnection.GetChildrenOp op = zkcon.new GetChildrenOp(path, false);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.OK.intValue(), path, op, payload);
+      verify(zk.mock).getChildren(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      Assert.assertEquals(payload, op.get());
+    }
+
+    // check for non found node
+    {
+      final ZkConnection.GetChildrenOp op = zkcon.new GetChildrenOp(path, false);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.NONODE.intValue(), path, op, null);
+      verify(zk.mock).getChildren(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause().toString(),
+                ie.getCause() instanceof KeeperException.NoNodeException);
+      }
+    }
+
+    // check for nonfatal exception
+    {
+      final ZkConnection.GetChildrenOp op = zkcon.new GetChildrenOp(path, false);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op, null);
+      verify(zk.mock).getChildren(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(1)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for fatal exception
+    {
+      final ZkConnection.GetChildrenOp op = zkcon.new GetChildrenOp(path, false);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, op, null);
+      verify(zk.mock).getChildren(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+  }
+
+  @Test
   public void testSetData()
           throws InterruptedException, IOException, KeeperException, ExecutionException {
     final MyZkFactory zk = new MyZkFactory();
@@ -284,6 +347,96 @@ public class TestZkConnection {
       op.submitAsyncOperation();
       op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, op, null);
       verify(zk.mock).setData(eq(path), eq(payload), eq(1), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+  }
+
+  @Test
+  public void testDelete()
+          throws InterruptedException, IOException, KeeperException, ExecutionException {
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+
+    final String path = "/abc";
+    final Stat stat = new Stat();
+    // check existent node
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, 1);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.OK.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
+    }
+
+    // check for non found node
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, 1);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.NONODE.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause().toString(),
+                ie.getCause() instanceof KeeperException.NoNodeException);
+      }
+    }
+
+    // check for bad version node
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, 1);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.BADVERSION.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause().toString(),
+                ie.getCause() instanceof KeeperException.BadVersionException);
+      }
+    }
+
+    // check for nonfatal exception
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, 1);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
+      verify(rp, atMost(1)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for nonfatal non idempotent operation
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, -1);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(-1), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause().toString(), ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for fatal exception
+    {
+      final ZkConnection.DeleteOp op = zkcon.new DeleteOp(path, 1);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, op);
+      verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
