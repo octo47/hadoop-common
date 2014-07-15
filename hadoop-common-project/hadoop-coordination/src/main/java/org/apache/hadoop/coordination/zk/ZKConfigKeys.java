@@ -40,7 +40,7 @@ public class ZKConfigKeys {
    * Key for ZK session timeout.
    */
   public static final String CE_ZK_SESSION_TIMEOUT_KEY =
-    "ce.zk.session.timeout";
+          "ce.zk.session.timeout";
   public static final int CE_ZK_SESSION_TIMEOUT_DEFAULT = 30000;
 
   /**

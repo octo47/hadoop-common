@@ -36,5 +36,5 @@ public interface AgreementHandler<L> {
   /**
    * Execute specified agreement.
    */
-  public void executeAgreement(Agreement<?,?> agreement);
+  public void executeAgreement(Agreement<?, ?> agreement);
 }

@@ -23,16 +23,18 @@ import java.io.Serializable;
  * ConsensusProposal is the base class for {@link Proposal}s.
  * Once agreed upon by {@link org.apache.hadoop.coordination.CoordinationEngine}
  * it also acts as an agreement.
- * <p>
+ * <p/>
  */
 public abstract class ConsensusProposal<L, R>
-                implements Proposal, Agreement<L, R> {
+        implements Proposal, Agreement<L, R> {
   private static final long serialVersionUID = 1L;
 
-  /** The identity of the node that is making the proposal */
+  /**
+   * The identity of the node that is making the proposal
+   */
   protected final Serializable proposerNodeId;
 
-  public ConsensusProposal(final Serializable proposerNodeId){
+  public ConsensusProposal(final Serializable proposerNodeId) {
     this.proposerNodeId = proposerNodeId;
   }
 
@@ -49,9 +51,9 @@ public abstract class ConsensusProposal<L, R>
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
-    if (!(o instanceof ConsensusProposal<?,?>)) return false;
+    if (!(o instanceof ConsensusProposal<?, ?>)) return false;
 
-    ConsensusProposal<?,?> that = (ConsensusProposal<?,?>) o;
+    ConsensusProposal<?, ?> that = (ConsensusProposal<?, ?>) o;
     if (!proposerNodeId.equals(that.proposerNodeId)) return false;
 
     return true;

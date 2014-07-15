@@ -159,6 +159,7 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Exists will retried on connection loss.
+   *
    * @param path path to check
    * @return Stat object or null, null means path not exists
    * @throws IOException
@@ -175,7 +176,8 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Async version of exists()
-   * @param path path to check
+   *
+   * @param path  path to check
    * @param watch if true, subscribe for changes
    * @return Future
    * @see #exists(String)
@@ -189,6 +191,7 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Get data will retried on connection loss.
+   *
    * @param path path to get data for
    * @return ZNode object
    * @throws IOException
@@ -205,7 +208,8 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Async version of getChildren()
-   * @param path to get children for
+   *
+   * @param path  to get children for
    * @param watch if true, subscribe for changes
    * @return Future with ZNode
    * @see #addWatcher(String, org.apache.zookeeper.Watcher)
@@ -235,7 +239,8 @@ public class ZkConnection implements Closeable, Watcher {
 
   /**
    * Async version of getData()
-   * @param path to get data for
+   *
+   * @param path  to get data for
    * @param watch if true, subscribe for changes
    * @return Future with ZNode
    * @see #getData(String)
@@ -268,10 +273,10 @@ public class ZkConnection implements Closeable, Watcher {
    * Create node with specified parameters.
    * If mode is nonsequential, will retry operation (operation considered indempotent)
    *
-   * @param path  path to create (or prefix, in case of sequential)
-   * @param bytes payload
-   * @param acl   acl assign to znode
-   * @param mode  create mode
+   * @param path             path to create (or prefix, in case of sequential)
+   * @param bytes            payload
+   * @param acl              acl assign to znode
+   * @param mode             create mode
    * @param ignoreNodeExists don't fail if node already exists
    * @return resulting path
    * @throws IOException

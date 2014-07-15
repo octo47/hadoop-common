@@ -55,7 +55,9 @@ public class MiniZooKeeperCluster {
 
   private boolean started;
 
-  /** The default port. If zero, we use a random port. */
+  /**
+   * The default port. If zero, we use a random port.
+   */
   private int defaultClientPort = 0;
   private String defaultHost = "127.0.0.1";
 
@@ -77,7 +79,7 @@ public class MiniZooKeeperCluster {
   public void setDefaultClientPort(int clientPort) {
     if (clientPort <= 0) {
       throw new IllegalArgumentException("Invalid default ZK client port: "
-        + clientPort);
+              + clientPort);
     }
     this.defaultClientPort = clientPort;
   }
@@ -100,15 +102,15 @@ public class MiniZooKeeperCluster {
   }
 
   /**
-   * @param baseDir baseDir for ZooKeeper cluster
+   * @param baseDir             baseDir for ZooKeeper cluster
    * @param numZooKeeperServers number of ZooKeepers desired
    * @return ClientPort server bound to, -1 if there was a
-   *         binding problem and we couldn't pick another port.
+   * binding problem and we couldn't pick another port.
    * @throws IOException
    * @throws InterruptedException
    */
   public int startup(File baseDir, int numZooKeeperServers) throws IOException,
-    InterruptedException {
+          InterruptedException {
     if (numZooKeeperServers <= 0)
       return -1;
 
@@ -119,7 +121,7 @@ public class MiniZooKeeperCluster {
 
     // running all the ZK servers
     for (int i = 0; i < numZooKeeperServers; i++) {
-      File dir = new File(baseDir, "zookeeper_"+i).getAbsoluteFile();
+      File dir = new File(baseDir, "zookeeper_" + i).getAbsoluteFile();
       recreateDir(dir);
       ZooKeeperServer server = new ZooKeeperServer(dir, dir, TICK_TIME);
       NIOServerCnxnFactory standaloneServerFactory;
@@ -127,11 +129,11 @@ public class MiniZooKeeperCluster {
         try {
           standaloneServerFactory = new NIOServerCnxnFactory();
           standaloneServerFactory.configure(
-            new InetSocketAddress(tentativePort),
-            DEFAULT_ZOOKEPER_MAX_CLIENT_CNXNS);
+                  new InetSocketAddress(tentativePort),
+                  DEFAULT_ZOOKEPER_MAX_CLIENT_CNXNS);
         } catch (BindException e) {
           LOG.debug("Failed binding ZK Server to client port: " +
-            tentativePort, e);
+                  tentativePort, e);
           // We're told to use some port but it's occupied, fail
           if (defaultClientPort > 0) return -1;
           // This port is already in use, try to use another.
@@ -144,7 +146,7 @@ public class MiniZooKeeperCluster {
       // Start up this ZK server
       standaloneServerFactory.startup(server);
       if (!ClientBase.waitForServerUp(defaultHost + ":" + tentativePort,
-          CONNECTION_TIMEOUT)) {
+              CONNECTION_TIMEOUT)) {
         throw new IOException("Waiting for startup of standalone server");
       }
 
@@ -168,7 +170,7 @@ public class MiniZooKeeperCluster {
 
     connectString = sb.toString();
     LOG.info("Started MiniZK Cluster and connect 1 ZK server " +
-      "on: " + connectString);
+            "on: " + connectString);
     final SettableFuture<Boolean> connected = SettableFuture.create();
     final ZooKeeper zk = new ZooKeeper(connectString, 1000, new Watcher() {
       @Override
@@ -195,7 +197,7 @@ public class MiniZooKeeperCluster {
 
   private void recreateDir(File dir) throws IOException {
     if (dir.exists()) {
-      if(!FileUtil.fullyDelete(dir)) {
+      if (!FileUtil.fullyDelete(dir)) {
         throw new IOException("Could not delete zk base directory: " + dir);
       }
     }
@@ -218,7 +220,7 @@ public class MiniZooKeeperCluster {
     for (int i = 0; i < standaloneServerFactoryList.size(); i++) {
       shutdownServerByIndex(i);
     }
-    for (ZooKeeperServer zkServer: zooKeeperServers) {
+    for (ZooKeeperServer zkServer : zooKeeperServers) {
       //explicitly close ZKDatabase since ZookeeperServer does not close them
       zkServer.getZKDatabase().close();
     }
@@ -235,7 +237,7 @@ public class MiniZooKeeperCluster {
 
   public void shutdownServerByIndex(int i) throws IOException {
     NIOServerCnxnFactory standaloneServerFactory =
-      standaloneServerFactoryList.get(i);
+            standaloneServerFactoryList.get(i);
     int clientPort = clientPortList.get(i);
 
     standaloneServerFactory.shutdown();

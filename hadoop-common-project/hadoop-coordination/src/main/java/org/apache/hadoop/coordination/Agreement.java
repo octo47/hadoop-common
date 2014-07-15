@@ -25,7 +25,7 @@ import java.io.Serializable;
  * Interface for agreements produced by {@link CoordinationEngine}.
  * L is the learner type, which processes the agreement.
  * R is the value returned (usually to a user) after the agreement is executed.
- * <p>
+ * <p/>
  */
 public interface Agreement<L, R> extends Serializable {
 

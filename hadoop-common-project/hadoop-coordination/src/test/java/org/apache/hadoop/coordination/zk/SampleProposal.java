@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-
 import java.security.PrivilegedAction;
 
 import org.apache.hadoop.coordination.ConsensusProposal;
@@ -76,8 +75,8 @@ class SampleProposal extends ConsensusProposal<SampleLearner, Integer> {
   @Override // ConsensusProposal
   public Integer execute(final SampleLearner learner) throws IOException {
     UserGroupInformation proxyUser =
-        UserGroupInformation.createProxyUser(getUser(),
-            UserGroupInformation.getCurrentUser());
+            UserGroupInformation.createProxyUser(getUser(),
+                    UserGroupInformation.getCurrentUser());
     return proxyUser.doAs(new PrivilegedAction<Integer>() {
       @Override
       public Integer run() {
@@ -91,7 +90,7 @@ class SampleProposal extends ConsensusProposal<SampleLearner, Integer> {
    * Custom de-serialization.
    */
   private void readObject(ObjectInputStream in)
-      throws IOException, ClassNotFoundException {
+          throws IOException, ClassNotFoundException {
     receiveTime = in.readLong();
     user = in.readUTF();
   }

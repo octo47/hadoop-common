@@ -17,12 +17,8 @@
  */
 package org.apache.hadoop.coordination;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.List;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.service.Service;
 
 
 /**
@@ -36,13 +32,13 @@ import org.apache.hadoop.service.Service;
  */
 public interface CoordinationEngine {
 
-  static enum ProposalReturnCode { OK, NO_QUORUM }
+  static enum ProposalReturnCode {OK, NO_QUORUM}
 
   /**
    * Obtain ordered collection of node IDs in the membership.
    * This includes all nodes independently on their role and the current
    * liveness status.
-   * <p>
+   * <p/>
    * Provided by CoordinationEngine implementation, the order is
    * to be persisted across node restarts.
    * The order can change when the membership changes.
@@ -54,7 +50,7 @@ public interface CoordinationEngine {
   /**
    * The Id of the current node as it is recognized by the
    * CoordinationEngine implementation.
-   * <p>
+   * <p/>
    * LocalNodeId is passed to the CoordinationEngine with every proposal.
    * The id is retained in the agreement so that the node which originated
    * the proposal could reply to the client.
@@ -64,10 +60,9 @@ public interface CoordinationEngine {
   /**
    * Submit proposal to coordination engine.
    *
-   * @param proposal the {@link Proposal}
+   * @param proposal    the {@link Proposal}
    * @param checkQuorum whether to check for quorum or not before submitting
-   * that should be processed by the coordination engine.
-   *
+   *                    that should be processed by the coordination engine.
    * @return an enum value signaling the result of the proposal submission
    * @throws ProposalNotAcceptedException if issue occurs on submit
    */
@@ -81,8 +76,9 @@ public interface CoordinationEngine {
    * that agreements with higher GSN are applied later in the sequence.
    * The agreement has the same GSN when it is learned on all nodes.
    * <p/>
-   *
+   * <p/>
    * On boot-up, will retrieve the last seen GSN of this node.
+   *
    * @return global sequence number of the agreement
    */
   long getGlobalSequenceNumber();
@@ -90,6 +86,7 @@ public interface CoordinationEngine {
   /**
    * When node restarts it may need to recover its state from
    * CoordinationEngine by replaying missed agreements.
+   *
    * @return true if recovery is possible or false otherwise.
    */
   boolean canRecoverAgreements();

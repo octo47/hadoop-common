@@ -47,7 +47,7 @@ public class SampleHandler implements AgreementHandler<SampleLearner> {
   }
 
   @Override
-  public void executeAgreement(Agreement<?,?> agreement) {
+  public void executeAgreement(Agreement<?, ?> agreement) {
     SampleProposal agreed = (SampleProposal) agreement;
     try {
       int s = agreed.execute(getLearner());

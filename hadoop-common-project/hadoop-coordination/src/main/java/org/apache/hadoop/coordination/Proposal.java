@@ -22,7 +22,7 @@ import java.io.Serializable;
 /**
  * Interface for proposals submitted to
  * {@link org.apache.hadoop.coordination.CoordinationEngine}.
- *
+ * <p/>
  * A Proposal must implement {@link Object#equals(Object)},
  * {@link Object#hashCode()}, which are used by CoordinationEngine
  * to recognize proposals. <br>

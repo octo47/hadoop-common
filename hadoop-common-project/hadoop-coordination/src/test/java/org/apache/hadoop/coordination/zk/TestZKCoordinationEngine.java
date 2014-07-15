@@ -43,7 +43,7 @@ import static org.junit.Assert.fail;
  */
 public class TestZKCoordinationEngine {
   private static final Log LOG =
-    LogFactory.getLog(ZKCoordinationEngine.class);
+          LogFactory.getLog(ZKCoordinationEngine.class);
 
   private Configuration conf;
   private String proposerNodeId = "node1";
@@ -68,12 +68,12 @@ public class TestZKCoordinationEngine {
    */
   @Test
   public void testSimpleProposals() throws IOException, KeeperException,
-      InterruptedException {
+          InterruptedException {
 
     zkCluster = new MiniZooKeeperCluster();
     zkCluster.startup(
-        new File(System.getProperty("test.build.dir", "target/test-dir"),
-            "testSimpleProposals"), 1);
+            new File(System.getProperty("test.build.dir", "target/test-dir"),
+                    "testSimpleProposals"), 1);
 
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
     conf.setInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY, 6000);
@@ -102,8 +102,8 @@ public class TestZKCoordinationEngine {
 
     // check state in ZK
     ZooKeeper zk = new ZooKeeper(
-      zkCluster.getConnectString(),
-      cEngine.getZooKeeperSessionTimeout(), cEngine);
+            zkCluster.getConnectString(),
+            cEngine.getZooKeeperSessionTimeout(), cEngine);
 
     String nodeGlobalSeqNumZNodePath = cEngine.getZkGsnZNode();
 
@@ -121,12 +121,12 @@ public class TestZKCoordinationEngine {
    */
   @Test
   public void testMultipleWriters() throws IOException, KeeperException,
-      InterruptedException {
+          InterruptedException {
 
     zkCluster = new MiniZooKeeperCluster();
     zkCluster.startup(
-        new File(System.getProperty("test.build.dir", "target/test-dir"),
-            "testMultipleWriters"), 1);
+            new File(System.getProperty("test.build.dir", "target/test-dir"),
+                    "testMultipleWriters"), 1);
 
 
     conf.setInt(ZKConfigKeys.CE_ZK_BATCH_SIZE_KEY, 5);
@@ -145,38 +145,38 @@ public class TestZKCoordinationEngine {
     final int agreementsPerClient = 10;
     final int totalAgreements = totalClients * agreementsPerClient;
     AgreementsThread[] clients = new AgreementsThread[totalClients];
-    for(int i = 0; i < clients.length; i++) {
+    for (int i = 0; i < clients.length; i++) {
       clients[i] = new AgreementsThread(cEngine, agreementsPerClient);
       clients[i].start();
     }
     long startingAgreements = cEngine.getGlobalSequenceNumber();
-    while(true) {
+    while (true) {
       boolean doneInitiazling = true;
       for (AgreementsThread client : clients) {
         doneInitiazling = doneInitiazling && client.initialized();
       }
-      if(doneInitiazling)
+      if (doneInitiazling)
         break;
     }
     AgreementsThread.launch();
-    for(AgreementsThread client : clients) {
+    for (AgreementsThread client : clients) {
       client.join();
     }
 
-    while(cEngine.getGlobalSequenceNumber() <
-          startingAgreements + totalAgreements) {
+    while (cEngine.getGlobalSequenceNumber() <
+            startingAgreements + totalAgreements) {
       LOG.info("Waiting execution of agreements at GSN = " +
-          cEngine.getGlobalSequenceNumber());
+              cEngine.getGlobalSequenceNumber());
       Thread.sleep(200);
     }
     assertTrue("Failed to see all expected agreements.",
-        cEngine.getGlobalSequenceNumber() >=
-        startingAgreements + totalAgreements);
+            cEngine.getGlobalSequenceNumber() >=
+                    startingAgreements + totalAgreements);
 
     assertTrue(cEngine.getGlobalSequenceNumber() > 0);
     ZooKeeper zk = new ZooKeeper(
-      zkCluster.getConnectString(),
-      ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_DEFAULT, cEngine);
+            zkCluster.getConnectString(),
+            ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_DEFAULT, cEngine);
     String nodeGlobalSeqNumZNodePath = cEngine.getZkGsnZNode();
 
     awaitLearner(cEngine, zk, nodeGlobalSeqNumZNodePath);
@@ -216,11 +216,11 @@ public class TestZKCoordinationEngine {
     @Override
     public void run() {
       initialized = true;
-      while(!launched);
-      for(int i = 0; i < operations; i++) {
+      while (!launched) ;
+      for (int i = 0; i < operations; i++) {
         try {
           SampleProposal scp =
-            new SampleProposal(proposerNodeId);
+                  new SampleProposal(proposerNodeId);
           scp.setUser(user);
           ce.submitProposal(scp, true);
         } catch (IOException e) {
