@@ -468,7 +468,7 @@ public class ZkConnection implements Closeable, Watcher {
             LOG.info("Lost connection to zk quorum performing " + getDescription() +
                     ", will retry");
             if (!isIdempotent()) // don't retry for non-idempotent operations
-              rc = super.setException(cause);
+              rc = super.setException(new IOException(cause));
             else {
               rc = !getPolicy().retryOperation(this)
                       && super.setException(
