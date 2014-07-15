@@ -80,22 +80,22 @@ public class TestZkAgreementsStorage {
 
     final int TIMEOUT = 100000;
     for (int i = 0; i < 10; i++) {
-      final String path0 = storage.writeProposal(PROPOSAL).get(TIMEOUT, TimeUnit.MILLISECONDS);
+      final String path0 = storage.writeProposal(PROPOSAL);
       Assert.assertEquals(storage.getExpectedAgreementZNodePath(0, i), path0);
     }
     verifyBucketState(zkConnection, 0);
 
-    final String pathBucket1 = storage.writeProposal(PROPOSAL).get(TIMEOUT, TimeUnit.MILLISECONDS);
+    final String pathBucket1 = storage.writeProposal(PROPOSAL);
     Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, 0), pathBucket1);
     verifyUpdateBucketState(zkConnection, 1, 0);
 
     // check state save
     for (int i = 1; i < 10; i++) {
-      final String path0 = storage.writeProposal(PROPOSAL).get(TIMEOUT, TimeUnit.MILLISECONDS);
+      final String path0 = storage.writeProposal(PROPOSAL);
       Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, i), path0);
     }
 
-    final String pathBucket2 = storage.writeProposal(PROPOSAL).get(TIMEOUT, TimeUnit.MILLISECONDS);
+    final String pathBucket2 = storage.writeProposal(PROPOSAL);
     Assert.assertEquals(storage.getExpectedAgreementZNodePath(2, 0), pathBucket2);
     verifyUpdateBucketState(zkConnection, 2, 1);
 

@@ -1,6 +1,5 @@
 package org.apache.hadoop.coordination.zk;
 
-import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -8,14 +7,13 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
@@ -48,8 +46,10 @@ public class ZkAgreementsStorage {
 
   private int zkBucketDigits;
   private int zkBucketAgreements;
+
   private AtomicLong currentBucket = new AtomicLong(-1);
-  private volatile SettableFuture<Long> resolvedBucket = null;
+  private Lock resolverLock = new ReentrantLock(false);
+
   private ArrayList<ACL> defaultAcl;
 
   public ZkAgreementsStorage(ZkConnection zooKeeper,
@@ -67,18 +67,13 @@ public class ZkAgreementsStorage {
   }
 
   public void start() throws InterruptedException, IOException, KeeperException {
-    findSuitableBucket();
+    nextBucket(0);
   }
 
   public synchronized void stop() {
-    // TODO: gracefully stop resolvers
-    if (resolvedBucket != null) {
-      resolvedBucket.cancel(true);
-      resolvedBucket = null;
-    }
   }
 
-  public long currentBucket() {
+  public long getCurrentBucket() {
     return currentBucket.get();
   }
 
@@ -100,120 +95,65 @@ public class ZkAgreementsStorage {
     return zkBucketStatePath;
   }
 
-  public ListenableFuture<String> writeProposal(final byte[] serialisedProposal) {
-    final SettableFuture<String> resultFuture =
-            SettableFuture.create();
-    return writeProposalCheck(resultFuture, serialisedProposal);
-  }
-
-  private ListenableFuture<String> writeProposalCheck(final SettableFuture<String> resultFuture,
-                                                      final byte[] serialisedProposal) {
-    final ListenableFuture<Stat> checkFuture =
-            zooKeeper.existsAsync(getZkAgreementBucketPath(currentBucket.get()), false);
-    Futures.addCallback(checkFuture, new FutureCallback<Stat>() {
-      @Override
-      public void onSuccess(@Nonnull Stat stat) {
-        if (stat.getCversion() < zkBucketAgreements) {
-//          LOG.debug("Got correct version " + stat.getCversion());
-          writeProposalInner(resultFuture, serialisedProposal);
-        } else
-          waitForSuitableBucket(new Runnable() {
-            @Override
-            public void run() {
-              writeProposalCheck(resultFuture, serialisedProposal);
-            }
-          });
-      }
-
-      @Override
-      public void onFailure(Throwable t) {
-        resultFuture.setException(t);
-      }
-    });
-    return resultFuture;
-  }
-
-  private ListenableFuture<String> writeProposalInner(final SettableFuture<String> resultFuture,
-                                                      final byte[] serialisedProposal) {
-    final ListenableFuture<String> async = zooKeeper.createAsync(
-            getZkAgreementPathTemplate(currentBucket.get()), serialisedProposal,
-            defaultAcl, CreateMode.PERSISTENT_SEQUENTIAL);
-    final FutureCallback<String> callback = new FutureCallback<String>() {
-      @Override
-      public void onSuccess(@Nonnull String path) {
-        try {
-          if (isInBucket(path)) {
-            resultFuture.set(path);
-            if (LOG.isTraceEnabled())
-              LOG.trace("Proposal stored in " + path);
-          } else {
-            if (LOG.isTraceEnabled())
-              LOG.trace("Proposal is out of bucket " + path);
-            waitForSuitableBucket(new Runnable() {
-              @Override
-              public void run() {
-                writeProposalInner(resultFuture, serialisedProposal);
-              }
-            });
-          }
-        } catch (Exception e) {
-          resultFuture.setException(e); // just to be sure
-        }
-      }
-
-      @Override
-      public void onFailure(Throwable t) {
-        resultFuture.setException(t);
-      }
-    };
-    Futures.addCallback(async, callback, MoreExecutors.sameThreadExecutor());
-    return resultFuture;
-  }
-
-  private synchronized void waitForSuitableBucket(Runnable runnable) {
-    if (resolvedBucket == null) {
-      resolvedBucket = SettableFuture.create();
-      executor.submit(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            findSuitableBucket();
-            resolvedBucket.set(currentBucket.get());
-          } catch (Exception e) {
-            resolvedBucket.setException(e);
-          }
-          resolvedBucket = null;
-        }
-      });
-    }
-    resolvedBucket.addListener(runnable, executor);
-  }
-
-  private void findSuitableBucket() throws InterruptedException, IOException, KeeperException {
-    Stat bucketZNode;
-    long bucket = currentBucket.get() + 1;
+  public String writeProposal(final byte[] serialisedProposal)
+          throws IOException, KeeperException, TimeoutException, InterruptedException {
     do {
-      final ZkCoordinationProtocol.ZkBucketsState bucketState =
-              getOrCreateState(bucket);
-
-      if (bucket < bucketState.getMaxBucket()) {
-        bucket = bucketState.getMaxBucket();
+      long currentBucket = this.currentBucket.get();
+      final Stat bucketPathZNode = zooKeeper
+              .exists(getZkAgreementBucketPath(currentBucket));
+      if (bucketPathZNode == null || bucketPathZNode.getCversion() >= zkBucketAgreements)
+        nextBucket(currentBucket);
+      else {
+        final String agreementPath = zooKeeper.create(getZkAgreementPathTemplate(currentBucket), serialisedProposal,
+                defaultAcl, CreateMode.PERSISTENT_SEQUENTIAL);
+        if (isInBucket(agreementPath))
+          return agreementPath;
+        else
+          nextBucket(currentBucket);
       }
-      createBucket(bucket); // just for sure
-
-      final String bucketPath = getZkAgreementBucketPath(bucket);
-      bucketZNode = zooKeeper.exists(bucketPath);
-      if (bucketZNode == null) {
-        throw new IllegalStateException("Bucket disappeared: " + bucketPath);
-      }
-      if (bucketZNode.getCversion() >= zkBucketAgreements)
-        bucket++;
-      else
-        break;
     } while (true);
-    saveState(bucket);
-    currentBucket.set(bucket);
-    LOG.info("Using bucket " + currentBucket.get());
+  }
+
+
+  private long nextBucket(long startingBucket) throws InterruptedException, IOException, KeeperException {
+    long bucket = currentBucket.get();
+    if (bucket > startingBucket)
+      return bucket;
+    resolverLock.lock();
+    try {
+      // double check if other thread already resolved next bucket
+      bucket = currentBucket.get();
+      if (bucket > startingBucket)
+        return bucket;
+      Stat bucketZNode;
+      // advance to the next bucket
+      bucket++;
+      do {
+        final ZkCoordinationProtocol.ZkBucketsState bucketState =
+                getOrCreateState(bucket);
+
+        if (bucket < bucketState.getMaxBucket()) {
+          bucket = bucketState.getMaxBucket();
+        }
+        createBucket(bucket); // just for sure
+
+        final String bucketPath = getZkAgreementBucketPath(bucket);
+        bucketZNode = zooKeeper.exists(bucketPath);
+        if (bucketZNode == null) {
+          throw new IllegalStateException("Bucket disappeared: " + bucketPath);
+        }
+        if (bucketZNode.getCversion() >= zkBucketAgreements)
+          bucket++;
+        else
+          break;
+      } while (true);
+      saveState(bucket);
+      currentBucket.set(bucket);
+      LOG.info("Using bucket " + currentBucket.get());
+      return bucket;
+    } finally {
+      resolverLock.unlock();
+    }
   }
 
   private void createBucket(long bucket) throws IOException, KeeperException, InterruptedException {

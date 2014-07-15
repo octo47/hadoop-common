@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.coordination.zk;
 
-import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -29,13 +28,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Function;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
@@ -269,20 +264,7 @@ public class ZKCoordinationEngine extends AbstractService
     if (checkQuorum) {
       checkQuorum();
     }
-    return Futures.get(submitProposalAsync(proposal),
-            getZooKeeperSessionTimeout(), TimeUnit.MILLISECONDS,
-            ProposalNotAcceptedException.class);
-  }
 
-  private final static Function<String, ProposalReturnCode> okConstF = new Function<String, ProposalReturnCode>() {
-    @Override
-    public ProposalReturnCode apply(@Nullable String input) {
-      return ProposalReturnCode.OK;
-    }
-  };
-
-  public Future<ProposalReturnCode> submitProposalAsync(Proposal proposal)
-  throws ProposalNotAcceptedException {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     ObjectOutputStream oos;
     try {
@@ -291,13 +273,9 @@ public class ZKCoordinationEngine extends AbstractService
       oos.writeObject(proposal);
       byte[] serializedProposal = baos.toByteArray();
 
-      final ListenableFuture<String> proposalFuture =
-              storage.writeProposal(serializedProposal);
+      storage.writeProposal(serializedProposal);
 
-      return FutureUtils.onSuccess(
-              proposalFuture,
-              okConstF,
-              executor);
+      return ProposalReturnCode.OK;
 
     } catch (Exception e) {
       throw new ProposalNotAcceptedException("Cannot accept proposal", e);
@@ -321,7 +299,7 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   public void pauseLearning() {
-    if(!isLearning) {
+    if (!isLearning) {
       return;
     }
 
@@ -338,7 +316,7 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   public void resumeLearning() {
-    if(isLearning) {
+    if (isLearning) {
       return;
     }
     isLearning = true;
@@ -384,7 +362,7 @@ public class ZKCoordinationEngine extends AbstractService
   }
 
   private void processImpl(WatchedEvent event) throws Exception {
-    if(!isLearning) {
+    if (!isLearning) {
       return;
     }
     if (event.getType() == Event.EventType.None) {
@@ -410,7 +388,7 @@ public class ZKCoordinationEngine extends AbstractService
           // reconnect automatically; until that, Coordination Engine may
           // neither submit new proposals, nor learn agreements
           LOG.warn("Coordination Engine got disconnected from ZooKeeper,"
-            + " agreements processing is paused");
+                  + " agreements processing is paused");
           return;
         default:
           LOG.error("Unexpected event state: " + event);
@@ -495,7 +473,7 @@ public class ZKCoordinationEngine extends AbstractService
     }
 
     private synchronized void applyAgreement(long bucket, int seq, Agreement<?, ?> agreement)
-    throws IOException, KeeperException, InterruptedException {
+            throws IOException, KeeperException, InterruptedException {
       currentGSN = ZkCoordinationProtocol.ZkGsnState.newBuilder()
               .setGsn(currentGSN.getGsn() + 1)
               .setBucket(bucket)
