@@ -3,6 +3,7 @@ package org.apache.hadoop.coordination.zk;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +21,7 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Assert;
@@ -43,6 +45,7 @@ public class TestZkConnection {
 
   private MiniZooKeeperCluster zkCluster;
   private ExecutorService executor = Executors.newSingleThreadExecutor();
+  private List<ACL> acl = ZooDefs.Ids.OPEN_ACL_UNSAFE;
 
   @After
   public void fini() throws IOException {
@@ -103,8 +106,87 @@ public class TestZkConnection {
     // check for nonfatal exception
     {
       final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op, null);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(1)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch(Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for fatal exception
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, op, null);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch(Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+  }
+
+  @Test
+  public void testCreate() throws InterruptedException, IOException, KeeperException, ExecutionException {
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+
+    final String path = "/abc";
+    final byte[] payload = "hello".getBytes("UTF-8");
+    // check existent node
+    {
+      final ZkConnection.CreateOp op = zkcon.new CreateOp(path, payload,
+              acl, CreateMode.PERSISTENT, false);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.OK.intValue(), path, op, path);
+      verify(zk.mock).create(eq(path), eq(payload), eq(acl),
+              eq(CreateMode.PERSISTENT), eq(op), eq(op));
+      Assert.assertEquals(path, op.get());
+    }
+
+    // check for existent node
+    {
+      final ZkConnection.CreateOp op = zkcon.new CreateOp(path, payload,
+              acl, CreateMode.PERSISTENT, false);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.NODEEXISTS.intValue(), path, op, path);
+      verify(zk.mock).create(eq(path), eq(payload), eq(acl),
+              eq(CreateMode.PERSISTENT), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch(Exception ie) {
+        Assert.assertTrue(ie.getCause().toString(),
+                ie.getCause() instanceof KeeperException.NodeExistsException);
+      }
+    }
+
+    // check for existent node but with ignore flag
+    {
+      final ZkConnection.CreateOp op = zkcon.new CreateOp(path, payload,
+              acl, CreateMode.PERSISTENT, true);
+      ZkConnection.RetryPolicy rp = addRetryPolicy(op);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.NODEEXISTS.intValue(), path, op, path);
+      verify(zk.mock).create(eq(path), eq(payload), eq(acl),
+              eq(CreateMode.PERSISTENT), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      Assert.assertEquals(path, op.get());
+    }
+
+    // check for nonfatal exception
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
       ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
-      when(rp.retryOperation(eq(op))).thenReturn(false);
       op.setPolicy(rp);
       op.submitAsyncOperation();
       op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op, null);
@@ -132,6 +214,13 @@ public class TestZkConnection {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
     }
+  }
+
+  private ZkConnection.RetryPolicy addRetryPolicy(ZkConnection.ZkAsyncOperation<?> op) {
+    ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
+    when(rp.retryOperation(eq(op))).thenReturn(false);
+    op.setPolicy(rp);
+    return rp;
   }
 
   private ZkConnection getZkConnection(MyZkFactory zk) throws KeeperException, InterruptedException, IOException {
