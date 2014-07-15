@@ -49,7 +49,6 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.data.Stat;
 
 /**
  * ZooKeeper-based implementation of {@link CoordinationEngine}.
