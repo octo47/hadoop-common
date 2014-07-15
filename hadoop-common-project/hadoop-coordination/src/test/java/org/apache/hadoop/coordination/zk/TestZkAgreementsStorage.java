@@ -3,9 +3,7 @@ package org.apache.hadoop.coordination.zk;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.concurrent.Executors;
 
-import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -50,7 +48,7 @@ public class TestZkAgreementsStorage {
   public void testInit() throws InterruptedException, IOException, KeeperException {
     final ZkConnection zkConnection = initZk();
     final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-            zkAgreementsPath, 1, MoreExecutors.sameThreadExecutor());
+            zkAgreementsPath, 1);
     storage.start();
 
     // check state save
@@ -74,7 +72,7 @@ public class TestZkAgreementsStorage {
           throws Exception {
     final ZkConnection zkConnection = initZk();
     final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-            zkAgreementsPath, 1, Executors.newSingleThreadExecutor());
+            zkAgreementsPath, 1);
     storage.start();
 
     final int TIMEOUT = 100000;

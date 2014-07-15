@@ -97,7 +97,6 @@ public class ZKCoordinationEngine extends AbstractService
   private ZkAgreementsStorage storage;
 
   private ZkConnection zooKeeper;
-  private ExecutorService executor;
 
   private volatile ZNode gsnNodeStat;
   private volatile ZkCoordinationProtocol.ZkGsnState currentGSN =
@@ -125,7 +124,6 @@ public class ZKCoordinationEngine extends AbstractService
       throw new HadoopIllegalArgumentException("Please define a value for: "
               + ZKConfigKeys.CE_ZK_NODE_ID_KEY);
     }
-    this.executor = Executors.newCachedThreadPool();
     this.zkConnectString = conf.get(ZKConfigKeys.CE_ZK_QUORUM_KEY,
             ZKConfigKeys.CE_ZK_QUORUM_DEFAULT);
     this.instanceId = ManagementFactory.getRuntimeMXBean().getName();
@@ -166,7 +164,7 @@ public class ZKCoordinationEngine extends AbstractService
       LOG.info("Сurrent GSN to: " + currentGSN + ", zk session 0x" +
               Long.toHexString(zooKeeper.getSessionId()));
       this.storage = new ZkAgreementsStorage(zooKeeper, zkAgreementsPath,
-              zkBucketDigits, executor);
+              zkBucketDigits);
       this.storage.start();
     } catch (Exception e) {
       serviceStop();

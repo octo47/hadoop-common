@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -41,8 +40,6 @@ public class ZkAgreementsStorage {
   private final String zkAgreementsPath;
   private final String zkAgreementsZNodeNamePrefix;
 
-  private final ExecutorService executor;
-
   private int zkBucketDigits;
   private int zkBucketAgreements;
 
@@ -53,11 +50,9 @@ public class ZkAgreementsStorage {
 
   public ZkAgreementsStorage(ZkConnection zooKeeper,
                              String zkAgreementsPath,
-                             int zkBucketDigits,
-                             ExecutorService executor) {
+                             int zkBucketDigits) {
     this.zooKeeper = zooKeeper;
     this.zkAgreementsPath = zkAgreementsPath;
-    this.executor = executor;
     this.zkBucketDigits = zkBucketDigits;
     this.zkBucketAgreements = ipow(10, this.zkBucketDigits);
     this.zkAgreementsZNodeNamePrefix = ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PREFIX_PATH;
