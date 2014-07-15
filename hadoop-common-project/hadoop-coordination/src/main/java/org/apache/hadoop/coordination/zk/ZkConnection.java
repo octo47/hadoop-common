@@ -117,8 +117,7 @@ public class ZkConnection implements Closeable, Watcher {
     zk = null;
   }
 
-  @VisibleForTesting
-  ZooKeeper getZk() {
+  public ZooKeeper getZk() {
     return zk;
   }
 
