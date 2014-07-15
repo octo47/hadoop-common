@@ -8,7 +8,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -16,7 +15,6 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -43,6 +41,9 @@ import org.jboss.netty.util.TimerTask;
 @InterfaceAudience.Private
 public class ZkConnection implements Closeable, Watcher {
 
+  /**
+   * Class for abstracting ZooKeeper creation code.
+   */
   public interface ZkFactory {
     String getQuorumString();
 
@@ -50,6 +51,15 @@ public class ZkConnection implements Closeable, Watcher {
 
     ZooKeeper create(Watcher defaultWatcher)
             throws IOException;
+  }
+
+  public interface RetryPolicy {
+    /**
+     * Retry operation logic
+     * @param op to retry
+     * @return false if no retries should be done
+     */
+    boolean retryOperation(ZkAsyncOperation<?> op);
   }
 
   public static final Log LOG = LogFactory.getLog(ZkConnection.class);
@@ -65,19 +75,25 @@ public class ZkConnection implements Closeable, Watcher {
   // TODO: replace with path specific listeners
   private final Set<Watcher> watchers = new LinkedHashSet<Watcher>();
 
-  private final ExecutorService executor;
   private final ZkFactory zkFactory;
+  private final RetryPolicy timerPolicy = new RetryPolicy() {
+    @Override
+    public boolean retryOperation(final ZkAsyncOperation<?> op) {
+      timer.newTimeout(new TimerTask() {
+        @Override
+        public void run(Timeout timeout) throws Exception {
+          op.submitAsyncOperation();
+        }
+      }, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
+      return true;
+    }
+  };
 
   public int getSessionTimeout() {
     return zkFactory.getSessionTimeout();
   }
 
-  public ZkConnection(String quorumString, int sessionTimeout)
-          throws IOException {
-    this(quorumString, sessionTimeout, MoreExecutors.sameThreadExecutor());
-  }
-
-  public ZkConnection(final String quorumString, final int sessionTimeout, ExecutorService executor)
+  public ZkConnection(final String quorumString, final int sessionTimeout)
           throws IOException {
     this(new ZkFactory() {
       @Override
@@ -94,16 +110,11 @@ public class ZkConnection implements Closeable, Watcher {
       public ZooKeeper create(Watcher defaultWatcher) throws IOException {
         return new ZooKeeper(quorumString, sessionTimeout, defaultWatcher);
       }
-    }, executor);
+    });
   }
 
-  public ZkConnection(ZkFactory zkFactory) throws IOException {
-    this(zkFactory, MoreExecutors.sameThreadExecutor());
-  }
-
-  public ZkConnection(ZkFactory zkFactory, ExecutorService executor)
+  public ZkConnection(ZkFactory zkFactory)
           throws IOException {
-    this.executor = executor;
     this.zkFactory = zkFactory;
     // assume we have rights for read in chroot
     String parsedChroot = new ConnectStringParser(zkFactory.getQuorumString()).getChrootPath();
@@ -407,7 +418,13 @@ public class ZkConnection implements Closeable, Watcher {
    *
    * @param <R> return type
    */
-  public abstract class ZkOperationFuture<V> extends AbstractFuture<V> {
+  public abstract class ZkAsyncOperation<V> extends AbstractFuture<V> {
+
+    private RetryPolicy policy;
+
+    protected ZkAsyncOperation() {
+      this.policy = getRetryPolicy();
+    }
 
     /**
      * Return description of current operation.
@@ -416,6 +433,14 @@ public class ZkConnection implements Closeable, Watcher {
      * @return description
      */
     public abstract String getDescription();
+
+    public void setPolicy(RetryPolicy policy) {
+      this.policy = policy;
+    }
+
+    public RetryPolicy getPolicy() {
+      return policy;
+    }
 
     protected boolean isIdempotent() {
       return true;
@@ -441,18 +466,9 @@ public class ZkConnection implements Closeable, Watcher {
             if (!isIdempotent()) // don't retry for non-idempotent operations
               rc = super.setException(cause);
             else {
-              timer.newTimeout(new TimerTask() {
-                @Override
-                public void run(Timeout timeout) throws Exception {
-                  executor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                      submitAsyncOperation();
-                    }
-                  });
-                }
-              }, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
-              rc = false;
+              rc = !getPolicy().retryOperation(this)
+                      && super.setException(
+                      new IOException("Can't retry" + getDescription(), cause));
             }
             break;
           case SESSIONEXPIRED:
@@ -471,10 +487,14 @@ public class ZkConnection implements Closeable, Watcher {
     }
   }
 
+  private RetryPolicy getRetryPolicy() {
+    return timerPolicy;
+  }
+
   /**
    * Future for exists() operation
    */
-  public class ExistsOp extends ZkOperationFuture<ZNode> implements AsyncCallback.StatCallback {
+  public class ExistsOp extends ZkAsyncOperation<ZNode> implements AsyncCallback.StatCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, Stat stat) {
@@ -510,7 +530,7 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for create() operation
    */
-  public class CreateOp extends ZkOperationFuture<String> implements AsyncCallback.StringCallback {
+  public class CreateOp extends ZkAsyncOperation<String> implements AsyncCallback.StringCallback {
 
     private final String path;
     private final byte[] bytes;
@@ -557,7 +577,7 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for setData() operation
    */
-  public class SetDataOp extends ZkOperationFuture<ZNode.Exists> implements AsyncCallback.StatCallback {
+  public class SetDataOp extends ZkAsyncOperation<ZNode.Exists> implements AsyncCallback.StatCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, Stat stat) {
@@ -598,7 +618,7 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for getData() operation
    */
-  public class GetDataOp extends ZkOperationFuture<ZNode> implements AsyncCallback.DataCallback {
+  public class GetDataOp extends ZkAsyncOperation<ZNode> implements AsyncCallback.DataCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
@@ -634,7 +654,7 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for getChildren() operation
    */
-  public class GetChildrenOp extends ZkOperationFuture<List<String>> implements AsyncCallback.ChildrenCallback {
+  public class GetChildrenOp extends ZkAsyncOperation<List<String>> implements AsyncCallback.ChildrenCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, List<String> children) {
@@ -669,7 +689,7 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for setData() operation
    */
-  public class DeleteOp extends ZkOperationFuture<Void> implements AsyncCallback.VoidCallback {
+  public class DeleteOp extends ZkAsyncOperation<Void> implements AsyncCallback.VoidCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx) {
