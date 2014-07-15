@@ -195,11 +195,11 @@ public class ZkConnection implements Closeable, Watcher {
    * @throws IOException
    * @throws KeeperException
    */
-  public Stat exists(String path) throws IOException, KeeperException, InterruptedException {
+  public ZNode exists(String path) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(existsAsync(path, false));
   }
 
-  public Stat exists(String path, boolean watch) throws IOException, KeeperException, InterruptedException {
+  public ZNode exists(String path, boolean watch) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(existsAsync(path, watch));
   }
 
@@ -212,7 +212,7 @@ public class ZkConnection implements Closeable, Watcher {
    * @return Future
    * @see #exists(String)
    */
-  public ListenableFuture<Stat> existsAsync(String path, boolean watch) {
+  public ListenableFuture<ZNode> existsAsync(String path, boolean watch) {
     final ExistsOp op = new ExistsOp(path, watch);
     op.submitAsyncOperation();
     return op;
@@ -339,11 +339,11 @@ public class ZkConnection implements Closeable, Watcher {
     return op;
   }
 
-  public Stat setData(String path, byte[] bytes, int version) throws IOException, KeeperException, InterruptedException {
+  public ZNode.Exists setData(String path, byte[] bytes, int version) throws IOException, KeeperException, InterruptedException {
     return waitForFeature(setDataAsync(path, bytes, version));
   }
 
-  public ListenableFuture<Stat> setDataAsync(String path, byte[] bytes, int version) {
+  public ListenableFuture<ZNode.Exists> setDataAsync(String path, byte[] bytes, int version) {
     final SetDataOp op = new SetDataOp(path, bytes, version);
     op.submitAsyncOperation();
     return op;
@@ -474,15 +474,15 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for exists() operation
    */
-  public class ExistsOp extends ZkOperationFuture<Stat> implements AsyncCallback.StatCallback {
+  public class ExistsOp extends ZkOperationFuture<ZNode> implements AsyncCallback.StatCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, Stat stat) {
       final KeeperException.Code code = KeeperException.Code.get(rc);
       if (isSuccess(code)) {
-        set(stat);
+        set(new ZNode.Exists(path, stat));
       } else if (isNodeDoesNotExist(code)) {
-        set(null);
+        set(new ZNode.None(path));
       } else {
         setException(KeeperException.create(code));
       }
@@ -557,13 +557,13 @@ public class ZkConnection implements Closeable, Watcher {
   /**
    * Future for setData() operation
    */
-  public class SetDataOp extends ZkOperationFuture<Stat> implements AsyncCallback.StatCallback {
+  public class SetDataOp extends ZkOperationFuture<ZNode.Exists> implements AsyncCallback.StatCallback {
 
     @Override
     public void processResult(int rc, String path, Object ctx, Stat stat) {
       final KeeperException.Code code = KeeperException.Code.get(rc);
       if (isSuccess(code)) {
-        set(stat);
+        set(new ZNode.Exists(path, stat));
       } else {
         setException(KeeperException.create(code));
       }

@@ -99,9 +99,9 @@ public class ZkAgreementsStorage {
           throws IOException, KeeperException, TimeoutException, InterruptedException {
     do {
       long currentBucket = this.currentBucket.get();
-      final Stat bucketPathZNode = zooKeeper
+      final ZNode bucketPathZNode = zooKeeper
               .exists(getZkAgreementBucketPath(currentBucket));
-      if (bucketPathZNode == null || bucketPathZNode.getCversion() >= zkBucketAgreements)
+      if (!bucketPathZNode.isExists() || bucketPathZNode.getStat().getCversion() >= zkBucketAgreements)
         nextBucket(currentBucket);
       else {
         final String agreementPath = zooKeeper.create(getZkAgreementPathTemplate(currentBucket), serialisedProposal,
@@ -125,7 +125,7 @@ public class ZkAgreementsStorage {
       bucket = currentBucket.get();
       if (bucket > startingBucket)
         return bucket;
-      Stat bucketZNode;
+      ZNode bucketZNode;
       // advance to the next bucket
       bucket++;
       do {
@@ -139,10 +139,7 @@ public class ZkAgreementsStorage {
 
         final String bucketPath = getZkAgreementBucketPath(bucket);
         bucketZNode = zooKeeper.exists(bucketPath);
-        if (bucketZNode == null) {
-          throw new IllegalStateException("Bucket disappeared: " + bucketPath);
-        }
-        if (bucketZNode.getCversion() >= zkBucketAgreements)
+        if (bucketZNode.getStat().getCversion() >= zkBucketAgreements)
           bucket++;
         else
           break;
@@ -271,13 +268,13 @@ public class ZkAgreementsStorage {
       expectedSeq = 0;
     }
     String nextProposal = getExpectedAgreementZNodePath(expectedBucket, expectedSeq);
-    Stat stat;
+    ZNode stat;
     try {
       stat = zooKeeper.exists(nextProposal, true);
     } catch (Exception e) {
       throw new IOException("Cannot obtain stat for: " + nextProposal, e);
     }
-    if (stat != null) {
+    if (stat.isExists()) {
       LOG.debug("Next agreement exists already: " + nextProposal);
       return true;
     }

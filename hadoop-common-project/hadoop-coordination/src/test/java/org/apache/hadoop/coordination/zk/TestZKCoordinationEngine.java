@@ -142,7 +142,7 @@ public class TestZKCoordinationEngine {
     Thread.sleep(200);
 
     final int totalClients = 64;
-    final int agreementsPerClient = 10;
+    final int agreementsPerClient = 5;
     final int totalAgreements = totalClients * agreementsPerClient;
     AgreementsThread[] clients = new AgreementsThread[totalClients];
     for (int i = 0; i < clients.length; i++) {

@@ -218,7 +218,8 @@ public class TestZkConnection {
     MyZkFactory(boolean failToConnect) {
       this.quorumString = "localhost:1234";
       this.sessionTimeout = 5000;
-      this.mock = mock(ZooKeeper.class, withSettings().verboseLogging());
+      // , withSettings().verboseLogging()
+      this.mock = mock(ZooKeeper.class);
       this.failToConnect = failToConnect;
     }
 

@@ -96,4 +96,30 @@ public abstract class ZNode {
     }
   }
 
+  public static class Exists extends ZNode {
+
+    private final Stat stat;
+
+    public Exists(String path, Stat stat) {
+      super(path);
+      this.stat = stat;
+    }
+
+    @Override
+    public Stat getStat() {
+      return stat;
+    }
+
+    @Nullable
+    @Override
+    public byte[] getData() {
+      throw new IllegalStateException("'exists' calls doesn't return any data for znodes");
+    }
+
+    @Override
+    public boolean isExists() {
+      return true;
+    }
+  }
+
 }

@@ -100,7 +100,7 @@ public class ZKCoordinationEngine extends AbstractService
   private ZkConnection zooKeeper;
   private ExecutorService executor;
 
-  private volatile Stat gsnNodeStat = null;
+  private volatile ZNode gsnNodeStat;
   private volatile ZkCoordinationProtocol.ZkGsnState currentGSN =
           ZkCoordinationProtocol.ZkGsnState.newBuilder()
                   .setGsn(INVALID_GSN)
@@ -195,15 +195,15 @@ public class ZKCoordinationEngine extends AbstractService
 
   private void initStorage() throws IOException, InterruptedException {
     try {
-      if (zooKeeper.exists(zkRootPath) == null) {
+      if (!zooKeeper.exists(zkRootPath).isExists()) {
         zooKeeper.create(zkRootPath, EMPTY_BYTES,
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
-      if (zooKeeper.exists(zkAgreementsPath) == null) {
+      if (!zooKeeper.exists(zkAgreementsPath).isExists()) {
         zooKeeper.create(zkAgreementsPath, EMPTY_BYTES,
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
-      if (zooKeeper.exists(zkGsnPath) == null) {
+      if (!zooKeeper.exists(zkGsnPath).isExists()) {
         zooKeeper.create(zkGsnPath, EMPTY_BYTES,
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
@@ -353,7 +353,7 @@ public class ZKCoordinationEngine extends AbstractService
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         gsnNodeStat = zooKeeper.exists(zkGsnZNode);
       } else {
-        gsnNodeStat = data.getStat();
+        gsnNodeStat = data;
         currentGSN = ZkCoordinationProtocol.ZkGsnState.parseFrom(data.getData());
       }
     } catch (KeeperException e) {
@@ -491,7 +491,7 @@ public class ZKCoordinationEngine extends AbstractService
     if (LOG.isTraceEnabled())
       LOG.trace("Saving agreement, set GSN to " + currentGSN.toString());
     gsnNodeStat = zooKeeper.setData(zkGsnZNode,
-            currentGSN.toByteArray(), gsnNodeStat.getVersion());
+            currentGSN.toByteArray(), gsnNodeStat.getStat().getVersion());
   }
 
   private static String ensureNoEndingSlash(String path) {
