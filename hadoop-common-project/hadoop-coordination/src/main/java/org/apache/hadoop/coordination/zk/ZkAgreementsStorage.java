@@ -210,47 +210,6 @@ public class ZkAgreementsStorage {
     return ZkCoordinationProtocol.ZkBucketsState.parseFrom(stored.getData());
   }
 
-  private ZkCoordinationProtocol.ZkBucketsState initBucket(long bucket)
-          throws IOException, KeeperException, InterruptedException {
-
-    final byte[] stateBytes = ZkCoordinationProtocol.ZkBucketsState.newBuilder()
-            .setBucketDigits(zkBucketDigits)
-            .setMaxBucket(bucket)
-            .build().toByteArray();
-    ZNode bucketData = zooKeeper.getData(zkBucketStatePath);
-    if (!bucketData.isExists()) {
-      LOG.info("Buckets not initialized yet, initializing at: " + zkBucketStatePath);
-      zooKeeper.create(zkBucketStatePath,
-              stateBytes,
-              defaultAcl, CreateMode.PERSISTENT, true);
-    } else {
-      try {
-        zooKeeper.setData(zkBucketStatePath, stateBytes, bucketData.getStat().getVersion());
-      } catch (KeeperException ke) {
-        if (ke.code() != KeeperException.Code.BADVERSION) {
-          throw ke;
-        }
-        // ok, we have update by someone else
-      }
-    }
-    final ZkCoordinationProtocol.ZkBucketsState bucketState =
-            ZkCoordinationProtocol.ZkBucketsState.parseFrom(bucketData.getData());
-    if (bucketState.getBucketDigits() != zkBucketDigits) {
-      throw new IllegalStateException("Inconsistent number of digits: stored "
-              + bucketState.getBucketDigits() + " vs " + zkBucketDigits);
-    }
-
-
-    if (bucketState.getMaxBucket() >= bucket) {
-      final String bucketPath = getZkAgreementBucketPath(bucket);
-      LOG.info("Creating bucket at: " + bucketPath);
-      zooKeeper.create(bucketPath,
-              EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
-      zooKeeper.setData(zkBucketStatePath, stateBytes, bucketData.getStat().getVersion());
-    }
-    return bucketState;
-  }
-
   public void iterateAgreements(long lastBucket, int lastSeq, int batchSize, AgreementCallback cb)
           throws InterruptedException, IOException, KeeperException {
     long bucket = lastBucket;
