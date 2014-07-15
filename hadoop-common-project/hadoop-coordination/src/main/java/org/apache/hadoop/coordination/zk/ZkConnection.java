@@ -377,7 +377,7 @@ public class ZkConnection implements Closeable, Watcher {
    *
    * @param <R> return type
    */
-  public abstract class ZkOperationFuture<V> extends AbstractFuture<V> implements Runnable {
+  public abstract class ZkOperationFuture<V> extends AbstractFuture<V> {
 
     /**
      * Return description of current operation.
@@ -414,7 +414,12 @@ public class ZkConnection implements Closeable, Watcher {
               timer.newTimeout(new TimerTask() {
                 @Override
                 public void run(Timeout timeout) throws Exception {
-                  executor.submit(ZkOperationFuture.this);
+                  executor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                      submitAsyncOperation();
+                    }
+                  });
                 }
               }, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
               rc = false;
@@ -433,11 +438,6 @@ public class ZkConnection implements Closeable, Watcher {
         rc = super.setException(cause);
       }
       return rc;
-    }
-
-    @Override
-    final public void run() {
-      submitAsyncOperation();
     }
   }
 
