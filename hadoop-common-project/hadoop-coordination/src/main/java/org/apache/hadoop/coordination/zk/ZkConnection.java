@@ -82,7 +82,11 @@ public class ZkConnection implements Closeable, Watcher {
       timer.newTimeout(new TimerTask() {
         @Override
         public void run(Timeout timeout) throws Exception {
-          op.submitAsyncOperation();
+          try {
+            op.submitAsyncOperation();
+          } catch (Exception e) {
+            op.setException(e);
+          }
         }
       }, RETRY_SLEEP_MILLIS, TimeUnit.MILLISECONDS);
       return true;
