@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +27,9 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.mockito.Matchers.eq;
+import static org.mockito.Matchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -69,12 +73,74 @@ public class TestZkConnection {
     Assert.assertFalse(zkcon.isAlive());
   }
 
+  @Test
+  public void testExists() throws InterruptedException, IOException, KeeperException, ExecutionException {
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+
+    final String path = "/abc";
+    final Stat stat = new Stat();
+    // check existent node
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.OK.intValue(), path, op, stat);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      Assert.assertEquals(path, op.get().getPath());
+      Assert.assertEquals(stat, op.get().getStat());
+    }
+
+    // check for non found node
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.NONODE.intValue(), path, op, null);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      Assert.assertEquals(path, op.get().getPath());
+      Assert.assertFalse(op.get().isExists());
+    }
+
+    // check for nonfatal exception
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
+      when(rp.retryOperation(eq(op))).thenReturn(false);
+      op.setPolicy(rp);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, op, null);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(1)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch(Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for fatal exception
+    {
+      final ZkConnection.ExistsOp op = zkcon.new ExistsOp(path, false);
+      ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
+      op.setPolicy(rp);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, op, null);
+      verify(zk.mock).exists(eq(path), isNull(Watcher.class), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch(Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+  }
+
   private ZkConnection getZkConnection(MyZkFactory zk) throws KeeperException, InterruptedException, IOException {
     final ArgumentCaptor<Watcher> watcherArgument =
             ArgumentCaptor.forClass(Watcher.class);
     when(zk.mock.exists(eq("/"), eq(false))).thenReturn(new Stat());
     when(zk.mock.getSessionId()).thenReturn(123l);
     ZkConnection zkcon = new ZkConnection(zk);
+    verify(zk.mock).exists(eq("/"), eq(false));
     verify(zk.mock).register(watcherArgument.capture());
     zk.watcher = watcherArgument.getValue(); // reregistered
     return zkcon;
@@ -219,7 +285,7 @@ public class TestZkConnection {
       this.quorumString = "localhost:1234";
       this.sessionTimeout = 5000;
       // , withSettings().verboseLogging()
-      this.mock = mock(ZooKeeper.class);
+      this.mock = mock(ZooKeeper.class, withSettings().verboseLogging());
       this.failToConnect = failToConnect;
     }
 
