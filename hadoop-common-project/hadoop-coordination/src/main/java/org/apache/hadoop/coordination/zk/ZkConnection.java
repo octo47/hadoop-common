@@ -178,9 +178,9 @@ public class ZkConnection implements Closeable, Watcher {
         public void process(WatchedEvent event) {
           switch (event.getState()) {
             case SyncConnected:
-              connected.set(true);
               // set global watcher
               zk.register(ZkConnection.this);
+              connected.set(true);
               break;
             case Expired:
               connected.setException(
