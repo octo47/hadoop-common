@@ -12,7 +12,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractFuture;
@@ -44,11 +43,18 @@ import org.jboss.netty.util.TimerTask;
 @InterfaceAudience.Private
 public class ZkConnection implements Closeable, Watcher {
 
+  public interface ZkFactory {
+    String getQuorumString();
+
+    int getSessionTimeout();
+
+    ZooKeeper create(Watcher defaultWatcher)
+            throws IOException;
+  }
+
   public static final Log LOG = LogFactory.getLog(ZkConnection.class);
   public static final int RETRY_SLEEP_MILLIS = 500;
 
-  private final String quorumString;
-  private final int sessionTimeout;
   private final String chrootPath;
 
   private volatile ZooKeeper zk;
@@ -60,9 +66,10 @@ public class ZkConnection implements Closeable, Watcher {
   private final Set<Watcher> watchers = new LinkedHashSet<Watcher>();
 
   private final ExecutorService executor;
+  private final ZkFactory zkFactory;
 
   public int getSessionTimeout() {
-    return sessionTimeout;
+    return zkFactory.getSessionTimeout();
   }
 
   public ZkConnection(String quorumString, int sessionTimeout)
@@ -70,13 +77,36 @@ public class ZkConnection implements Closeable, Watcher {
     this(quorumString, sessionTimeout, MoreExecutors.sameThreadExecutor());
   }
 
-  public ZkConnection(String quorumString, int sessionTimeout, ExecutorService executor)
+  public ZkConnection(final String quorumString, final int sessionTimeout, ExecutorService executor)
           throws IOException {
-    this.quorumString = quorumString;
-    this.sessionTimeout = sessionTimeout;
+    this(new ZkFactory() {
+      @Override
+      public String getQuorumString() {
+        return quorumString;
+      }
+
+      @Override
+      public int getSessionTimeout() {
+        return sessionTimeout;
+      }
+
+      @Override
+      public ZooKeeper create(Watcher defaultWatcher) throws IOException {
+        return new ZooKeeper(quorumString, sessionTimeout, defaultWatcher);
+      }
+    }, executor);
+  }
+
+  public ZkConnection(ZkFactory zkFactory) throws IOException {
+    this(zkFactory, MoreExecutors.sameThreadExecutor());
+  }
+
+  public ZkConnection(ZkFactory zkFactory, ExecutorService executor)
+          throws IOException {
     this.executor = executor;
+    this.zkFactory = zkFactory;
     // assume we have rights for read in chroot
-    String parsedChroot = new ConnectStringParser(quorumString).getChrootPath();
+    String parsedChroot = new ConnectStringParser(zkFactory.getQuorumString()).getChrootPath();
     if (parsedChroot == null)
       parsedChroot = "/";
     this.chrootPath = parsedChroot;
@@ -124,31 +154,32 @@ public class ZkConnection implements Closeable, Watcher {
   private void connect() throws IOException {
     if (isConnected())
       return;
-    LOG.info("Connecting to zk ensemble: " + quorumString);
+    LOG.info("Connecting to zk ensemble: " + zkFactory.getQuorumString());
 
     final SettableFuture<Boolean> connected = SettableFuture.create();
-    this.zk = new ZooKeeper(quorumString, sessionTimeout, new Watcher() {
-      @Override
-      public void process(WatchedEvent event) {
-        switch (event.getState()) {
-          case SyncConnected:
-            connected.set(true);
-            // set global watcher
-            zk.register(ZkConnection.this);
-            break;
-          case Expired:
-            connected.setException(
-                    new NoQuorumException("Failed to establish connection to " + quorumString));
-        }
-        ZkConnection.this.process(event);
-      }
-    }) {
-
-    };
     try {
-      connected.get(this.sessionTimeout, TimeUnit.MILLISECONDS);
+      this.zk = zkFactory.create(new Watcher() {
+        @Override
+        public void process(WatchedEvent event) {
+          switch (event.getState()) {
+            case SyncConnected:
+              connected.set(true);
+              // set global watcher
+              zk.register(ZkConnection.this);
+              break;
+            case Expired:
+              connected.setException(
+                      new NoQuorumException("Failed to establish connection to " +
+                              zkFactory.getQuorumString()));
+          }
+          ZkConnection.this.process(event);
+        }
+      });
+      connected.get(getSessionTimeout(), TimeUnit.MILLISECONDS);
       // do sync check
-      zk.exists(chrootPath, false);
+      final Stat exists = zk.exists(chrootPath, false);
+      if (exists == null)
+        throw new NoQuorumException("Root " + chrootPath + " path not exists");
     } catch (Exception e) {
       close();
       throw new NoQuorumException("Failed to initialize zk quorum", e);
@@ -359,7 +390,7 @@ public class ZkConnection implements Closeable, Watcher {
 
   private <R> R waitForFeature(ListenableFuture<R> op) throws IOException, KeeperException, InterruptedException {
     try {
-      return op.get(sessionTimeout, TimeUnit.MILLISECONDS);
+      return op.get(getSessionTimeout(), TimeUnit.MILLISECONDS);
     } catch (ExecutionException e) {
       final Throwable cause = e.getCause();
       Throwables.propagateIfPossible(cause, KeeperException.class);

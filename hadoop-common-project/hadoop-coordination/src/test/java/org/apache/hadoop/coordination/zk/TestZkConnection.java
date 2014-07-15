@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
@@ -17,9 +19,17 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 public class TestZkConnection {
 
@@ -28,6 +38,7 @@ public class TestZkConnection {
   private static final byte[] EMPTY_BYTES = {};
 
   private MiniZooKeeperCluster zkCluster;
+  private ExecutorService executor = Executors.newSingleThreadExecutor();
 
   @After
   public void fini() throws IOException {
@@ -35,35 +46,42 @@ public class TestZkConnection {
   }
 
   @Test
-  public void testDisconnects() throws IOException, InterruptedException {
+  public void testDisconnects() throws IOException, InterruptedException, KeeperException {
+
     try {
-      new ZkConnection("localhost:3000", 1000);
+      new ZkConnection(new MyZkFactory(true));
       Assert.fail();
     } catch (NoQuorumException nqe) {
       // OK
     }
-    LOG.info("Starting miniZK");
-    startMiniZk();
-    ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 1000);
-    Assert.assertTrue(zkcon.isAlive());
+
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+    zk.watcher.process(noteTypeEvent(Watcher.Event.KeeperState.Disconnected));
+    zk.watcher.process(noteTypeEvent(Watcher.Event.KeeperState.SyncConnected));
+    when(zk.mock.getState()).thenReturn(ZooKeeper.States.CONNECTED);
     Assert.assertTrue(zkcon.isConnected());
-    LOG.info("Disconnecting miniZK");
-    getClientCnxn(zkcon).disconnect();
-    try {
-      zkcon.exists("/");
-      LOG.info("exists succesfully completed");
-      Assert.fail();
-    } catch (NoQuorumException e) {
-      Assert.assertFalse(zkcon.isAlive());
-      Assert.assertFalse(zkcon.isConnected());
-    } catch (KeeperException e) {
-      Assert.fail();
-    }
-    zkcon.close();
+
+    zk.watcher.process(noteTypeEvent(Watcher.Event.KeeperState.Expired));
+    verify(zk.mock).close();
+    // zk should be closed
+    Assert.assertFalse(zkcon.isConnected());
+    Assert.assertFalse(zkcon.isAlive());
+  }
+
+  private ZkConnection getZkConnection(MyZkFactory zk) throws KeeperException, InterruptedException, IOException {
+    final ArgumentCaptor<Watcher> watcherArgument =
+            ArgumentCaptor.forClass(Watcher.class);
+    when(zk.mock.exists(eq("/"), eq(false))).thenReturn(new Stat());
+    when(zk.mock.getSessionId()).thenReturn(123l);
+    ZkConnection zkcon = new ZkConnection(zk);
+    verify(zk.mock).register(watcherArgument.capture());
+    zk.watcher = watcherArgument.getValue(); // reregistered
+    return zkcon;
   }
 
   @Test
-  public void testBasicOps() throws IOException, InterruptedException, KeeperException {
+  public void testLiveZk() throws IOException, InterruptedException, KeeperException {
     startMiniZk();
     final ZkConnection zkcon = new ZkConnection(zkCluster.getConnectString(), 2000);
     zkcon.delete("/test1");
@@ -176,5 +194,54 @@ public class TestZkConnection {
     }
     if (t != null)
       throw t;
+  }
+
+
+  private WatchedEvent noteTypeEvent(Watcher.Event.KeeperState type) {
+    return new WatchedEvent(
+            Watcher.Event.EventType.None,
+            type, null);
+  }
+
+  class MyZkFactory implements ZkConnection.ZkFactory {
+
+    private final ZooKeeper mock;
+    private final boolean failToConnect;
+    String quorumString;
+    Watcher watcher;
+    int sessionTimeout;
+
+    MyZkFactory() {
+      this(false);
+    }
+
+    MyZkFactory(boolean failToConnect) {
+      this.quorumString = "localhost:1234";
+      this.sessionTimeout = 5000;
+      this.mock = mock(ZooKeeper.class, withSettings().verboseLogging());
+      this.failToConnect = failToConnect;
+    }
+
+    public String getQuorumString() {
+      return quorumString;
+    }
+
+    public int getSessionTimeout() {
+      return sessionTimeout;
+    }
+
+    @Override
+    public ZooKeeper create(Watcher defaultWatcher) throws IOException {
+      this.watcher = defaultWatcher;
+      if (failToConnect)
+        throw new IOException("Connection failed");
+      executor.submit(new Runnable() {
+        @Override
+        public void run() {
+          watcher.process(noteTypeEvent(Watcher.Event.KeeperState.SyncConnected));
+        }
+      });
+      return mock;
+    }
   }
 }
