@@ -62,6 +62,8 @@ public class ZkAgreementsStorage {
 
   public void start() throws InterruptedException, IOException, KeeperException {
     nextBucket(0);
+    final ZkCoordinationProtocol.ZkBucketsState state = getOrCreateState(0);
+    LOG.info("Initialized agreements storage at " + zkAgreementsPath + " state:" + state);
   }
 
   public synchronized void stop() {

@@ -70,33 +70,55 @@ public class TestZkAgreementsStorage {
   @Test
   public void testWriting()
           throws Exception {
-    final ZkConnection zkConnection = initZk();
-    final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-            zkAgreementsPath, 1);
-    storage.start();
+    {
+      final ZkConnection zkConnection = initZk();
+      final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
+              zkAgreementsPath, 1);
+      storage.start();
 
-    final int TIMEOUT = 100000;
-    for (int i = 0; i < 10; i++) {
-      final String path0 = storage.writeProposal(PROPOSAL);
-      Assert.assertEquals(storage.getExpectedAgreementZNodePath(0, i), path0);
+      final int TIMEOUT = 100000;
+      for (int i = 0; i < 10; i++) {
+        final String path0 = storage.writeProposal(PROPOSAL);
+        Assert.assertEquals(storage.getExpectedAgreementZNodePath(0, i), path0);
+      }
+      verifyBucketState(zkConnection, 0);
+
+      final String pathBucket1 = storage.writeProposal(PROPOSAL);
+      Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, 0), pathBucket1);
+      verifyUpdateBucketState(zkConnection, 1, 0);
+
+      // check state save
+      for (int i = 1; i < 10; i++) {
+        final String path0 = storage.writeProposal(PROPOSAL);
+        Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, i), path0);
+      }
+
+      final String pathBucket2 = storage.writeProposal(PROPOSAL);
+      Assert.assertEquals(storage.getExpectedAgreementZNodePath(2, 0), pathBucket2);
+      verifyUpdateBucketState(zkConnection, 2, 1);
+
+      storage.stop();
     }
-    verifyBucketState(zkConnection, 0);
 
-    final String pathBucket1 = storage.writeProposal(PROPOSAL);
-    Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, 0), pathBucket1);
-    verifyUpdateBucketState(zkConnection, 1, 0);
+    {
+      final ZkConnection zkConnection = initZk();
+      // verity restart
+      final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
+              zkAgreementsPath, 1);
+      storage.start();
 
-    // check state save
-    for (int i = 1; i < 10; i++) {
-      final String path0 = storage.writeProposal(PROPOSAL);
-      Assert.assertEquals(storage.getExpectedAgreementZNodePath(1, i), path0);
+      // check state save
+      for (int i = 1; i < 10; i++) {
+        final String path0 = storage.writeProposal(PROPOSAL);
+        Assert.assertEquals(storage.getExpectedAgreementZNodePath(2, i), path0);
+      }
+
+      final String pathBucket3 = storage.writeProposal(PROPOSAL);
+      Assert.assertEquals(storage.getExpectedAgreementZNodePath(3, 0), pathBucket3);
+      verifyUpdateBucketState(zkConnection, 3, 2);
+      storage.stop();
     }
 
-    final String pathBucket2 = storage.writeProposal(PROPOSAL);
-    Assert.assertEquals(storage.getExpectedAgreementZNodePath(2, 0), pathBucket2);
-    verifyUpdateBucketState(zkConnection, 2, 1);
-
-    storage.stop();
   }
 
   private void verifyBucketState(ZkConnection zkConnection, int maxBucket)
@@ -122,7 +144,8 @@ public class TestZkAgreementsStorage {
 
   private ZkConnection initZk() throws IOException, KeeperException, InterruptedException {
     final ZkConnection zkConnection = new ZkConnection(zkCluster.getConnectString(), 600000);
-    zkConnection.create(zkAgreementsPath, EMPTY, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+    zkConnection.create(zkAgreementsPath, EMPTY,
+            ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, true);
     return spy(zkConnection);
   }
 }
