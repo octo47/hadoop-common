@@ -62,7 +62,7 @@ public class ZkConnection implements Closeable, Watcher {
     boolean retryOperation(ZkAsyncOperation<?> op);
   }
 
-  public static final Log LOG = LogFactory.getLog(ZkConnection.class);
+  private static final Log LOG = LogFactory.getLog(ZkConnection.class);
   public static final int RETRY_SLEEP_MILLIS = 500;
 
   private final String chrootPath;

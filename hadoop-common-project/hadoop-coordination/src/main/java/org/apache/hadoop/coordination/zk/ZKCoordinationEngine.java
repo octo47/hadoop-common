@@ -55,7 +55,7 @@ import org.apache.zookeeper.ZooDefs;
  */
 public class ZKCoordinationEngine extends AbstractService
         implements CoordinationEngine, Watcher {
-  public static final Log LOG = LogFactory.getLog(ZKCoordinationEngine.class);
+  private static final Log LOG = LogFactory.getLog(ZKCoordinationEngine.class);
 
 
   public static final byte[] EMPTY_BYTES = new byte[0];
@@ -396,7 +396,7 @@ public class ZKCoordinationEngine extends AbstractService
   }
 
 
-  Runnable createLearnerThread() {
+  private Runnable createLearnerThread() {
     return new AgreementsRunnable();
   }
 

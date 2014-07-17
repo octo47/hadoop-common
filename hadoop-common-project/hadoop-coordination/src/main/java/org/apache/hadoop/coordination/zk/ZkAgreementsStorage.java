@@ -32,7 +32,7 @@ public class ZkAgreementsStorage {
     public void apply(long bucket, int seq, byte[] data) throws IOException;
   }
 
-  public static final Log LOG = LogFactory.getLog(ZkAgreementsStorage.class);
+  private static final Log LOG = LogFactory.getLog(ZkAgreementsStorage.class);
 
   public static final byte[] EMPTY_BYTES = new byte[0];
 
