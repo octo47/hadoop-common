@@ -708,6 +708,11 @@ public class TestZkConnection {
       executor.submit(new Runnable() {
         @Override
         public void run() {
+          try {
+            Thread.sleep(500);
+          } catch (InterruptedException e) {
+            throw Throwables.propagate(e);
+          }
           watcher.process(noteTypeEvent(Watcher.Event.KeeperState.SyncConnected));
         }
       });

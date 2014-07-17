@@ -720,6 +720,11 @@ public class ZkConnection implements Closeable, Watcher {
     }
 
     @Override
+    protected boolean isIdempotent() {
+      return version != -1;
+    }
+
+    @Override
     public void submitAsyncOperation() {
       zk.delete(path, version, this, this);
     }
