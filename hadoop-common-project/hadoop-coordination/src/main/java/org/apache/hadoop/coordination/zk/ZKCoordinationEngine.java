@@ -324,6 +324,9 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   public void checkQuorum() throws NoQuorumException {
+    if (zooKeeper == null) {
+      throw new IllegalStateException("Not initialized CE");
+    }
     if (!zooKeeper.isAlive()) {
       throw new NoQuorumException("No connection to ZooKeeper");
     }
