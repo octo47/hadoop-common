@@ -29,7 +29,7 @@ public class ZkAgreementsStorage {
   private String zkBucketStatePath;
 
   public interface AgreementCallback {
-    public void apply(long bucket, int seq, byte[] data) throws IOException;
+    public void apply(long bucket, int seq, byte[] data) throws IOException, InterruptedException;
   }
 
   private static final Log LOG = LogFactory.getLog(ZkAgreementsStorage.class);
@@ -256,7 +256,7 @@ public class ZkAgreementsStorage {
    *
    * @return true if agreement already here
    */
-  public boolean watchNextAgreement(long bucket, int seq) throws IOException {
+  public boolean watchNextAgreement(long bucket, int seq) throws IOException, InterruptedException {
     long expectedBucket = bucket;
     int expectedSeq = seq + 1;
     if (expectedSeq >= zkBucketAgreements) {
@@ -267,6 +267,8 @@ public class ZkAgreementsStorage {
     ZNode stat;
     try {
       stat = zooKeeper.exists(nextProposal, true);
+    } catch (InterruptedException e) {
+      throw e;
     } catch (Exception e) {
       throw new IOException("Cannot obtain stat for: " + nextProposal, e);
     }

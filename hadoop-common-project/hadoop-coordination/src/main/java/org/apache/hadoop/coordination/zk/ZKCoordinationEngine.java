@@ -26,8 +26,6 @@ import java.io.Serializable;
 import java.lang.management.ManagementFactory;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -441,7 +439,7 @@ public class ZKCoordinationEngine extends AbstractService
                   zkBatchSize,
                   new ZkAgreementsStorage.AgreementCallback() {
                     @Override
-                    public void apply(long bucket, int seq, byte[] data) throws IOException {
+                    public void apply(long bucket, int seq, byte[] data) throws IOException, InterruptedException {
                       try {
                         ObjectInputStream ois = new ObjectInputStream(
                                 new ByteArrayInputStream(data));
@@ -453,6 +451,8 @@ public class ZKCoordinationEngine extends AbstractService
                         applyAgreement(bucket, seq, agreement);
                         if (!zkBatchCommit)
                           updateCurrentGSN();
+                      } catch (InterruptedException e) {
+                        throw e;
                       } catch (Exception e) {
                         throw new IOException("Cannot obtain agreement data: ", e);
                       }
