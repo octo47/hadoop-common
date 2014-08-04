@@ -3,15 +3,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>hadoop-project</artifactId>
         <groupId>org.apache.hadoop</groupId>
-        <version>3.0.0-SNAPSHOT</version>
+        <artifactId>hadoop-project</artifactId>
+        <version>2.6.0-SNAPSHOT</version>
         <relativePath>../../hadoop-project</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>hadoop-coordination</artifactId>
-    <version>3.0.0-SNAPSHOT</version>
+    <version>2.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <dependencies>
