@@ -106,7 +106,12 @@ public class ZKCoordinationEngine extends AbstractService
 
 
   public ZKCoordinationEngine(String name) {
+    this(name, null);
+  }
+
+  public ZKCoordinationEngine(String name, String localNodeId) {
     super(name);
+    this.localNodeId = localNodeId;
   }
 
   @Override
@@ -117,7 +122,8 @@ public class ZKCoordinationEngine extends AbstractService
     this.zookeeperSessionTimeout = conf.getInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY,
             ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_DEFAULT);
 
-    this.localNodeId = conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, null);
+    if (localNodeId == null)
+      this.localNodeId = conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, null);
     if (this.localNodeId == null) {
       throw new HadoopIllegalArgumentException("Please define a value for: "
               + ZKConfigKeys.CE_ZK_NODE_ID_KEY);
@@ -203,7 +209,7 @@ public class ZKCoordinationEngine extends AbstractService
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
       }
       // holding ephemeral lock for given nodeId
-      zooKeeper.create(zkGsnPath + ".alive", instanceId.getBytes(),
+      zooKeeper.create(zkGsnZNode + ".alive", instanceId.getBytes(),
               ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
       createOrGetGlobalSequenceNumber();
     } catch (KeeperException e) {
