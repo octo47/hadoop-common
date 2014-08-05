@@ -25,9 +25,15 @@ import org.apache.hadoop.coordination.ConsensusProposal;
 /**
  * Used for loader threads registration.
  */
-public class RegisterProposal extends ConsensusProposal<LoadTool.LoadGenerator, Void> implements Serializable {
+public class RegisterProposal extends ConsensusProposal<LoadLearner, Void> implements Serializable {
+
+  private static final long serialVersionUID = 1L;
 
   private final int requestId;
+
+  public int getRequestId() {
+    return requestId;
+  }
 
   public RegisterProposal(Serializable proposerNodeId, int requestId) {
     super(proposerNodeId);
@@ -35,8 +41,8 @@ public class RegisterProposal extends ConsensusProposal<LoadTool.LoadGenerator, 
   }
 
   @Override
-  public Void execute(LoadTool.LoadGenerator callBackObject) throws IOException {
-    callBackObject.register(getProposerNodeId(), requestId);
+  public Void execute(LoadLearner loadLearner) throws IOException {
+    loadLearner.handleRegister(this);
     return null;
   }
 }

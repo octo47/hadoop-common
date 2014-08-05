@@ -24,6 +24,8 @@ import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.MiniZooKeeperCluster;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
+import org.apache.hadoop.metrics2.MetricsSystem;
+import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,12 +33,11 @@ import org.junit.Test;
 public class LoadToolTest {
   private MiniZooKeeperCluster zkCluster;
   private Configuration conf;
-  private String proposerNodeId = "abc";
 
   @Before
   public void beforeTest() throws Exception {
     conf = new Configuration();
-    conf.set(ZKConfigKeys.CE_ZK_NODE_ID_KEY, proposerNodeId);
+    conf.set(ZKConfigKeys.CE_ZK_NODE_ID_KEY, "abc");
     zkCluster = new MiniZooKeeperCluster();
     zkCluster.startup(
             new File(System.getProperty("test.build.dir", "target/test-dir"),

@@ -27,14 +27,19 @@ import org.apache.hadoop.coordination.ConsensusProposal;
  * Main workhorse of load test, this proposals issued by
  * load generator threads and accounted by Learner.
  */
-public class LoadProposal extends ConsensusProposal<LoadTool.LoadGenerator, Long> implements Serializable {
+public class LoadProposal
+        extends ConsensusProposal<LoadLearner, Long>
+        implements Serializable {
 
-  private Long generatorId;
+  private static final long serialVersionUID = 1L;
+
+  private Long clientId;
   private Long value;
   private Long iteration;
+  private Long creationTime;
 
-  public Long getGeneratorId() {
-    return generatorId;
+  public Long getClientId() {
+    return clientId;
   }
 
   public Long getValue() {
@@ -45,25 +50,32 @@ public class LoadProposal extends ConsensusProposal<LoadTool.LoadGenerator, Long
     return iteration;
   }
 
-  public LoadProposal(Serializable nodeId, Long generatorId, Long value, Long iteration) {
+  public Long getCreationTime() {
+    return creationTime;
+  }
+
+  public LoadProposal(Serializable nodeId, Long clientId, Long value, Long iteration) {
     super(nodeId);
     this.value = value;
-    this.generatorId = generatorId;
+    this.clientId = clientId;
     this.iteration = iteration;
+    this.creationTime = System.currentTimeMillis();
   }
 
   private void writeObject(java.io.ObjectOutputStream out)
           throws IOException {
     out.writeLong(value);
-    out.writeLong(generatorId);
+    out.writeLong(clientId);
     out.writeLong(iteration);
+    out.writeLong(creationTime);
   }
 
   private void readObject(java.io.ObjectInputStream in)
           throws IOException, ClassNotFoundException {
     value = in.readLong();
-    generatorId = in.readLong();
+    clientId = in.readLong();
     iteration = in.readLong();
+    creationTime = in.readLong();
   }
 
   private void readObjectNoData()
@@ -71,16 +83,43 @@ public class LoadProposal extends ConsensusProposal<LoadTool.LoadGenerator, Long
   }
 
   @Override
-  public Long execute(LoadTool.LoadGenerator loadGenerator) throws IOException {
-    return loadGenerator.advance(this);
+  public Long execute(LoadLearner loadLearner) throws IOException {
+    return loadLearner.handleProposal(this);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    if (!super.equals(o)) return false;
+
+    LoadProposal that = (LoadProposal) o;
+
+    if (creationTime != null ? !creationTime.equals(that.creationTime) : that.creationTime != null) return false;
+    if (clientId != null ? !clientId.equals(that.clientId) : that.clientId != null) return false;
+    if (iteration != null ? !iteration.equals(that.iteration) : that.iteration != null) return false;
+    if (value != null ? !value.equals(that.value) : that.value != null) return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    int result = super.hashCode();
+    result = 31 * result + (clientId != null ? clientId.hashCode() : 0);
+    result = 31 * result + (value != null ? value.hashCode() : 0);
+    result = 31 * result + (iteration != null ? iteration.hashCode() : 0);
+    result = 31 * result + (creationTime != null ? creationTime.hashCode() : 0);
+    return result;
   }
 
   @Override
   public String toString() {
     return "LoadProposal{" +
-            "generatorId=" + generatorId +
+            "clientId=" + clientId +
             ", value=" + value +
             ", iteration=" + iteration +
+            ", creationTime=" + creationTime +
             '}';
   }
 }

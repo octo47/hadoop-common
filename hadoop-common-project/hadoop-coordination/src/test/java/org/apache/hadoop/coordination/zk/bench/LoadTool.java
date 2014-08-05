@@ -18,16 +18,9 @@
 package org.apache.hadoop.coordination.zk.bench;
 
 import java.io.IOException;
-import java.io.Serializable;
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-import com.google.common.base.Throwables;
-import com.google.common.collect.Maps;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -36,7 +29,11 @@ import org.apache.hadoop.coordination.AgreementHandler;
 import org.apache.hadoop.coordination.ConsensusProposal;
 import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
+import org.apache.hadoop.coordination.zk.ZKConfigKeys;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
+import org.apache.hadoop.metrics2.MetricsSystem;
+import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
+import org.apache.hadoop.net.NetUtils;
 
 /**
  * Simple load tool for CE.
@@ -67,25 +64,40 @@ public class LoadTool {
   private final ZKCoordinationEngine engine;
   private final Configuration conf;
 
-  private volatile LoadGenerator generator;
+  private volatile LoadLearner generator;
 
   LoadTool(Configuration conf) {
     this.conf = conf;
-    this.engine = new ZKCoordinationEngine("engine");
+    String nodeId = this.conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, null);
+    if (nodeId == null) {
+      nodeId = System.getProperty(ZKConfigKeys.CE_ZK_NODE_ID_KEY);
+      if (nodeId == null) {
+        nodeId = NetUtils.getHostname();
+      }
+    }
+    LOG.info("Starting LoadTool as nodeId: " + nodeId);
+    this.engine = new ZKCoordinationEngine("engine", nodeId);
   }
 
   public void run() throws ProposalNotAcceptedException, NoQuorumException, InterruptedException {
-    generator = new LoadGenerator();
+    generator = new LoadLearner(engine);
     engine.init(conf);
     engine.registerHandler(new CoordinationHandler(generator));
     engine.start();
     final int numThreads = conf.getInt(CE_BENCH_THREADS_KEY, 5);
     LOG.info("Starting " + numThreads + " threads");
-    generator.spawn(numThreads);
+    LoadToolMetrics metrics = LoadToolMetrics.create(this, 0);
+    final ExecutorService service = Executors.newCachedThreadPool();
+    for (int i = 0; i < numThreads; i++) {
+      service.submit(new ClientThread(generator, metrics,
+              conf.getLong(CE_BENCH_SECONDS_KEY, Long.MAX_VALUE / 1000) * 1000,
+              conf.getLong(CE_BENCH_ITERATIONS_KEY, Long.MAX_VALUE)));
+    }
     Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
       @Override
       public void run() {
         try {
+          service.shutdownNow();
           generator.stop();
         } catch (InterruptedException e) {
           LOG.error(e);
@@ -94,200 +106,29 @@ public class LoadTool {
       }
     }));
     generator.awaitThreads();
+    service.shutdownNow();
   }
 
-  class LoadThread {
-    private final String name;
-    private final LoadGenerator generator;
-    private final CountDownLatch barrier = new CountDownLatch(1);
-    private final CountDownLatch done = new CountDownLatch(1);
-    private final long maxIteration = conf.getLong(CE_BENCH_ITERATIONS_KEY, Long.MAX_VALUE);
-
-    private Long id;
-    private Random rnd;
-    private Thread thread;
-    private volatile long seenIteration = -1;
-
-    public LoadThread(String name, LoadGenerator generator) {
-      this.name = name;
-      this.generator = generator;
-    }
-
-    public void assignId(Long id) {
-      this.id = id;
-      this.rnd = new Random(id);
-      LOG.info("Thread " + name + " activated with id=" + id);
-      barrier.countDown();
-    }
-
-    public synchronized void seenIteration(long iteration) {
-      if (seenIteration < iteration)
-        seenIteration = iteration;
-      if (seenIteration >= maxIteration)
-        done.countDown();
-    }
-
-    public synchronized void start() {
-      if (thread != null)
-        return;
-      LOG.info("Starting thread " + name);
-      thread = new Thread(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            barrier.await();
-            long millis = conf.getLong(CE_BENCH_SECONDS_KEY, Long.MAX_VALUE / 10000) * 1000;
-            long startMillis = System.currentTimeMillis();
-            long iteration = 0;
-            while (!Thread.currentThread().isInterrupted()
-                    && (iteration++ < maxIteration)
-                    && System.currentTimeMillis() - startMillis < millis) {
-              final LoadProposal proposal = new LoadProposal(engine.getLocalNodeId(), id, rnd.nextLong(), iteration);
-              if (LOG.isTraceEnabled())
-                LOG.trace("Proposing " + proposal + " from " + name);
-              engine.submitProposal(proposal, false);
-            }
-            LOG.info("Finished proposing, awaiting catch up " + name);
-            done.await();
-            LOG.info("Done " + name);
-          } catch (Exception e) {
-            LOG.error("Failed to submit " + name, e);
-            throw Throwables.propagate(e);
-          } finally {
-            generator.deregister(LoadThread.this);
-          }
-        }
-      });
-      thread.start();
-    }
-
-    public synchronized void stop() throws InterruptedException {
-      if (thread != null) {
-        thread.interrupt();
-        thread.join();
-        thread = null;
-      }
-    }
+  public String getNodeId() {
+    return this.conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, "undefined-node-id");
   }
 
-  private static String threadId(Serializable nodeId, int requestId) {
-    return nodeId.toString() + ":" + requestId;
-  }
+  static class CoordinationHandler implements AgreementHandler<LoadLearner> {
 
-  class LoadGenerator {
-    private int requestId = 0;
-    private Lock lock = new ReentrantLock();
-    private Condition cond = lock.newCondition();
-    private Map<String, LoadThread> threads = Maps.newHashMap();
-    private Map<Long, LoadThread> id2Thread = Maps.newHashMap();
-    private Map<Long, Random> state = Maps.newHashMap();
+    private LoadLearner loadLearner;
 
-    /**
-     * Advance state of thread, compare with expected random sequence.
-     */
-    public Long advance(LoadProposal proposal) {
-      final Long generatorId = proposal.getGeneratorId();
-      Random random = state.get(generatorId);
-      if (random == null) {
-        random = new Random(generatorId);
-        state.put(generatorId, random);
-      }
-      final LoadThread lt = id2Thread.get(generatorId);
-      if (lt != null)
-        lt.seenIteration(proposal.getIteration());
-      final Long value = proposal.getValue();
-      if (!(random.nextLong() == value)) {
-        throw new IllegalStateException("Failed at " + generatorId +
-                " and seq " + value + " on iteration " + proposal.getIteration());
-      }
-      if (LOG.isTraceEnabled())
-        LOG.trace("Check passed " + proposal);
-
-      return value;
-    }
-
-    public void deregister(LoadThread lt) {
-      lock.lock();
-      try {
-        threads.remove(lt.name);
-        id2Thread.remove(lt.id);
-        cond.signal();
-      } finally {
-        lock.unlock();
-      }
-    }
-
-    /**
-     * Whence registration arrived, we either register new state for remote
-     * generator or start our own. In both case GSN should be the same, so
-     * it is safe to assume that Random will be initialized with the same GSN.
-     */
-    public void register(Serializable proposerNodeId, int requestId) {
-      Long id = engine.getGlobalSequenceNumber();
-      lock.lock();
-      try {
-        state.put(id, new Random(id));
-        final LoadThread lt = threads.get(threadId(proposerNodeId, requestId));
-        if (lt != null) {
-          lt.assignId(id);
-          id2Thread.put(id, lt);
-        }
-      } finally {
-        lock.unlock();
-      }
-    }
-
-    public void spawn(int amount) {
-      for (int i = 0; i < amount; i++) {
-        lock.lock();
-        try {
-          final int req = requestId++;
-          final LoadThread lt = new LoadThread(threadId(engine.getLocalNodeId(), req), this);
-          threads.put(lt.name, lt);
-          lt.start();
-          engine.submitProposal(new RegisterProposal(engine.getLocalNodeId(), req), true);
-        } catch (Exception e) {
-          throw Throwables.propagate(e);
-        } finally {
-          lock.unlock();
-        }
-      }
-    }
-
-    public void stop() throws InterruptedException {
-      for (LoadThread loadThread : threads.values()) {
-        loadThread.stop();
-      }
-    }
-
-    public void awaitThreads() throws InterruptedException {
-      lock.lock();
-      try {
-        while (threads.size() > 0) {
-          cond.await();
-        }
-      } finally {
-        lock.unlock();
-      }
-    }
-  }
-
-  static class CoordinationHandler implements AgreementHandler<LoadGenerator> {
-
-    private LoadGenerator loadGenerator;
-
-    CoordinationHandler(LoadGenerator loadGenerator) {
-      this.loadGenerator = loadGenerator;
+    CoordinationHandler(LoadLearner loadLearner) {
+      this.loadLearner = loadLearner;
     }
 
     @Override
-    public LoadGenerator getLearner() {
-      return loadGenerator;
+    public LoadLearner getLearner() {
+      return loadLearner;
     }
 
     @Override
-    public void setLearner(LoadGenerator loadGenerator) {
-      this.loadGenerator = loadGenerator;
+    public void setLearner(LoadLearner loadLearner) {
+      this.loadLearner = loadLearner;
     }
 
     @SuppressWarnings("unchecked")
@@ -305,6 +146,9 @@ public class LoadTool {
   public static void main(String[] args) throws ProposalNotAcceptedException, NoQuorumException, InterruptedException {
     Configuration conf = new Configuration();
     conf.addResource(args[0]);
-    new LoadTool(conf).run();
+    final MetricsSystem metricsSystem = DefaultMetricsSystem.initialize("load");
+    metricsSystem.register("stdout", "Stdout sink", new MetricsStdoutSink());
+    final LoadTool loadTool = new LoadTool(conf);
+    loadTool.run();
   }
 }
