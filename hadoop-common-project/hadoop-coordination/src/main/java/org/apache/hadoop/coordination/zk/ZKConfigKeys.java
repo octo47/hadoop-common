@@ -78,7 +78,7 @@ public class ZKConfigKeys {
   /**
    * Default number of buckets to keep in zookeeper.
    */
-  public static final int CE_ZK_MAX_BUCKETS_DEFAULT = 10;
+  public static final int CE_ZK_MAX_BUCKETS_DEFAULT = 50;
 
   /**
    * Unique ID of the node for coordination engine. No default value.
