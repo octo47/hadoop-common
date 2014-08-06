@@ -175,13 +175,16 @@ public class ZkAgreementsStorage {
       // advance to the next bucket
       bucket++;
       do {
+        // create bucket znode
+        zooKeeper.create(getZkAgreementBucketPath(bucket),
+                EMPTY_BYTES,
+                defaultAcl, CreateMode.PERSISTENT, true);
         final ZkCoordinationProtocol.ZkBucketsState bucketState =
                 getOrCreateState(bucket);
 
         if (bucket < bucketState.getMaxBucket()) {
           bucket = bucketState.getMaxBucket();
         }
-        createBucket(bucket); // just for sure
 
         final String bucketPath = getZkAgreementBucketPath(bucket);
         bucketZNode = zooKeeper.exists(bucketPath);
@@ -197,12 +200,6 @@ public class ZkAgreementsStorage {
     } finally {
       resolverLock.unlock();
     }
-  }
-
-  private void createBucket(long bucket) throws IOException, KeeperException, InterruptedException {
-    zooKeeper.create(getZkAgreementBucketPath(bucket),
-            EMPTY_BYTES,
-            defaultAcl, CreateMode.PERSISTENT, true);
   }
 
   private void saveState(long bucket) throws InterruptedException, IOException, KeeperException {
