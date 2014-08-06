@@ -56,6 +56,8 @@ public class LoadToolTest {
   public void testLoadTool() throws ProposalNotAcceptedException, NoQuorumException, InterruptedException {
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
     conf.setInt(LoadTool.CE_BENCH_ITERATIONS_KEY, 15);
+    conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 3);
+    conf.setInt(ZKConfigKeys.CE_ZK_MAX_BUCKETS_KEY, 3);
 //    final MetricsSystem metricsSystem = DefaultMetricsSystem.initialize("load");
 //    metricsSystem.register("stdout", "Stdout sink", new MetricsStdoutSink());
     final LoadTool lt = new LoadTool(conf);

@@ -65,7 +65,7 @@ public class TestZkAgreementsStorage {
   public void testInit() throws InterruptedException, IOException, KeeperException {
     final ZkConnection zkConnection = initZk();
     final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-            zkAgreementsPath, 1);
+            zkAgreementsPath, 1, 10);
     storage.start();
 
     // check state save
@@ -90,7 +90,7 @@ public class TestZkAgreementsStorage {
     {
       final ZkConnection zkConnection = initZk();
       final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-              zkAgreementsPath, 1);
+              zkAgreementsPath, 1, 10);
       storage.start();
 
       final int TIMEOUT = 100000;
@@ -121,7 +121,7 @@ public class TestZkAgreementsStorage {
       final ZkConnection zkConnection = initZk();
       // verity restart
       final ZkAgreementsStorage storage = new ZkAgreementsStorage(zkConnection,
-              zkAgreementsPath, 1);
+              zkAgreementsPath, 1, 10);
       storage.start();
 
       // check state save

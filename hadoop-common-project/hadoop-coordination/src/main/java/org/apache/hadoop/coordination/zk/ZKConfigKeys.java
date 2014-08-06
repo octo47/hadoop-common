@@ -70,6 +70,17 @@ public class ZKConfigKeys {
   public static final int CE_ZK_BUCKET_DIGITS_DEFAULT = 4;
 
   /**
+   * Maximum number of buckets, keeping in zookeeper. Background
+   * thread will evict old buckets.
+   */
+  public static final String CE_ZK_MAX_BUCKETS_KEY = "ce.zk.max.buckets";
+
+  /**
+   * Default number of buckets to keep in zookeeper.
+   */
+  public static final int CE_ZK_MAX_BUCKETS_DEFAULT = 10;
+
+  /**
    * Unique ID of the node for coordination engine. No default value.
    */
   public static final String CE_ZK_NODE_ID_KEY = "ce.zk.node.id";

@@ -404,18 +404,20 @@ public class ZkConnection implements Closeable, Watcher {
         LOG.error("Failed to process event", e);
       }
     }
-    switch (event.getState()) {
-      case Disconnected:
-        LOG.info("Disconnected session 0x" + Long.toHexString(zk.getSessionId()));
-        break;
-      case SyncConnected:
-        LOG.info("Reconnected session 0x" + Long.toHexString(zk.getSessionId()));
-        break;
-      case Expired:
-        LOG.info("Lost session 0x" + Long.toHexString(zk.getSessionId()));
-        close();
-      default:
-        // FALL THROUGH
+    if (event.getType() == Event.EventType.None) {
+      switch (event.getState()) {
+        case Disconnected:
+          LOG.info("Disconnected session 0x" + Long.toHexString(zk.getSessionId()));
+          break;
+        case SyncConnected:
+          LOG.info("Reconnected session 0x" + Long.toHexString(zk.getSessionId()));
+          break;
+        case Expired:
+          LOG.info("Lost session 0x" + Long.toHexString(zk.getSessionId()));
+          close();
+        default:
+          // FALL THROUGH
+      }
     }
 
   }

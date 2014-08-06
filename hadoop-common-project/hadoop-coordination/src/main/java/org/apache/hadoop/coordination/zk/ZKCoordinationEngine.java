@@ -88,6 +88,7 @@ public class ZKCoordinationEngine extends AbstractService
   private String zkConnectString;
   private int zkBucketDigits;
   private int zkBatchSize;
+  private int zkMaxBuckets;
   private boolean zkBatchCommit;
 
   private final Semaphore learnerCanProceed = new Semaphore(0);
@@ -145,6 +146,8 @@ public class ZKCoordinationEngine extends AbstractService
 
     this.zkBucketDigits = conf.getInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY,
             ZKConfigKeys.CE_ZK_BUCKET_DIGITS_DEFAULT);
+    this.zkMaxBuckets = conf.getInt(ZKConfigKeys.CE_ZK_MAX_BUCKETS_KEY,
+            ZKConfigKeys.CE_ZK_MAX_BUCKETS_DEFAULT);
 
     LOG.info("CE parameters: batch=" + zkBatchSize);
   }
@@ -168,7 +171,7 @@ public class ZKCoordinationEngine extends AbstractService
       LOG.info("Сurrent GSN to: " + currentGSN + ", zk session 0x" +
               Long.toHexString(zooKeeper.getSessionId()));
       this.storage = new ZkAgreementsStorage(zooKeeper, zkAgreementsPath,
-              zkBucketDigits);
+              zkBucketDigits, zkMaxBuckets);
       this.storage.start();
     } catch (Exception e) {
       serviceStop();
@@ -338,7 +341,6 @@ public class ZKCoordinationEngine extends AbstractService
 
   @Override
   public void process(WatchedEvent watchedEvent) {
-    LOG.info("Got watched event: " + watchedEvent);
     try {
       processImpl(watchedEvent);
     } catch (Exception e) {

@@ -19,19 +19,31 @@ package org.apache.hadoop.coordination.zk;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.coordination.StaleReplicaException;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -59,40 +71,61 @@ public class ZkAgreementsStorage {
 
   private int zkBucketDigits;
   private int zkBucketAgreements;
+  private int zkMaxBuckets;
+  private int cleanupInterval = 1; // seconds
 
   private AtomicLong currentBucket = new AtomicLong(-1);
   private Lock resolverLock = new ReentrantLock(false);
 
   private ArrayList<ACL> defaultAcl;
 
+  private ScheduledExecutorService scheduler;
+
   public ZkAgreementsStorage(ZkConnection zooKeeper,
                              String zkAgreementsPath,
-                             int zkBucketDigits) {
+                             int zkBucketDigits,
+                             int zkMaxBuckets) {
     this.zooKeeper = zooKeeper;
     this.zkAgreementsPath = zkAgreementsPath;
     this.zkBucketDigits = zkBucketDigits;
     this.zkBucketAgreements = ipow(10, this.zkBucketDigits);
+    this.zkMaxBuckets = zkMaxBuckets;
     this.zkAgreementsZNodeNamePrefix = ZKConfigKeys.CE_ZK_AGREEMENTS_ZNODE_PREFIX_PATH;
     this.zkBucketStatePath = zkAgreementsPath + ZKConfigKeys.ZK_BUCKETS_STATE_PATH;
     this.defaultAcl = ZooDefs.Ids.OPEN_ACL_UNSAFE;
   }
 
   public void start() throws InterruptedException, IOException, KeeperException {
+    scheduler = Executors
+            .newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true)
+                    .setNameFormat("ZkAgreementsStorage-%d").build());
     nextBucket(0);
     final ZkCoordinationProtocol.ZkBucketsState state = getOrCreateState(0);
+    scheduler.scheduleAtFixedRate(new BucketCleaner(this), cleanupInterval, cleanupInterval,
+            TimeUnit.SECONDS);
     LOG.info("Initialized agreements storage at " + zkAgreementsPath + " state:" + state);
   }
 
   public synchronized void stop() {
+    scheduler.shutdownNow();
   }
 
   public long getCurrentBucket() {
     return currentBucket.get();
   }
 
+  private final static Pattern bucketNamePattern = Pattern.compile("\\d{13}");
 
   String getZkAgreementBucketPath(long bucket) {
     return zkAgreementsPath + "/" + String.format("%013d", bucket);
+  }
+
+  String getZkAgreementBucketDeletedPath(long bucket) {
+    return zkAgreementsPath + "/" + String.format("%013d", bucket) + ".deleted";
+  }
+
+  String getZkAgreementBucketLockPath(long bucket) {
+    return zkAgreementsPath + "/" + String.format("%013d", bucket) + ".busy";
   }
 
   String getZkAgreementPathTemplate(long bucket) {
@@ -234,10 +267,14 @@ public class ZkAgreementsStorage {
       bucket += 1;
     }
     ZNode bucketZNode = zooKeeper.getData(getZkAgreementBucketPath(bucket));
+    ZNode deletedBucketZNode = zooKeeper.exists(getZkAgreementBucketDeletedPath(bucket));
+    if (!bucketZNode.isExists() || deletedBucketZNode.isExists()) {
+      throw new StaleReplicaException("Bucket " + bucket + " marked as deleted or not exists");
+    }
     // now we have knowledge of how many agreements are in bucket, that can be
     // obtained from znode CVersion.
     // end is ensured to get minimum of available agreements or specified batch size
-    int end = Math.min(bucketZNode.isExists() ? bucketZNode.getStat().getCversion() : 0, start + batchSize);
+    int end = Math.min(bucketZNode.getStat().getCversion(), start + batchSize);
     // if end is out of bucket, fix it on the end of bucket.
     // agreements out of bucket were resubmitted to next bucket,
     // so we don't need to read them right now.
@@ -331,6 +368,79 @@ public class ZkAgreementsStorage {
     } catch (Exception e) {
       LOG.error("Can't recover agreemetns");
       return false;
+    }
+  }
+
+  private static class BucketCleaner implements Runnable {
+
+    private final ZkAgreementsStorage storage;
+
+    private BucketCleaner(ZkAgreementsStorage storage) {
+      this.storage = storage;
+    }
+
+    @Override
+    public void run() {
+      try {
+        storage.gcBuckets();
+      } catch (IOException e) {
+        LOG.error(e);
+      } catch (KeeperException e) {
+        LOG.error(e);
+      } catch (InterruptedException e) {
+        LOG.error(e);
+      }
+    }
+  }
+
+
+  private void gcBuckets() throws InterruptedException, IOException, KeeperException {
+    List<String> buckets = zooKeeper.getChildren(zkAgreementsPath);
+    Iterables.removeIf(buckets, new Predicate<String>() {
+      @Override
+      public boolean apply(String input) {
+        return !bucketNamePattern.matcher(input).matches();
+      }
+    });
+    int current = buckets.size();
+    if (current > zkMaxBuckets) {
+      Collections.sort(buckets);
+      List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
+      LOG.info("Removing buckets: " + toRemove);
+      for (String s : toRemove) {
+        long bucketId = Long.parseLong(s);
+        String bucketDeletedPath = getZkAgreementBucketDeletedPath(bucketId);
+        zooKeeper.create(bucketDeletedPath,
+                EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
+        try {
+          zooKeeper.create(getZkAgreementBucketLockPath(bucketId),
+                  EMPTY_BYTES, defaultAcl, CreateMode.EPHEMERAL, false);
+        } catch (KeeperException.NodeExistsException nee) {
+          // already locked by other process
+          continue;
+        }
+        try {
+          final String bucketPath = getZkAgreementBucketPath(bucketId);
+          List<String> agreements = zooKeeper.getChildren(bucketPath);
+          ListenableFuture<List<Void>> result = Futures.allAsList(
+                  Lists.transform(agreements, new Function<String, ListenableFuture<Void>>() {
+                    @Override
+                    public ListenableFuture<Void> apply(String input) {
+                      return zooKeeper.deleteAsync(bucketPath + "/" + input, -1);
+                    }
+                  }));
+          try {
+            result.get();
+          } catch (ExecutionException e) {
+            LOG.error("Unable to delete items in bucket " + bucketPath, e);
+          }
+          zooKeeper.delete(bucketPath);
+          zooKeeper.delete(bucketDeletedPath);
+          LOG.info("Removed bucket: " + s);
+        } finally {
+          zooKeeper.delete(getZkAgreementBucketLockPath(bucketId));
+        }
+      }
     }
   }
 }
