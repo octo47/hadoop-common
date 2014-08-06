@@ -355,12 +355,14 @@ public class ZKCoordinationEngine extends AbstractService
     try {
       data = zooKeeper.getData(zkGsnZNode);
       if (!data.isExists()) {
+        LOG.info("GSN state not found for " + localNodeId + ", creating new");
         zooKeeper.create(zkGsnZNode, currentGSN.toByteArray(),
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         gsnNodeStat = zooKeeper.exists(zkGsnZNode);
       } else {
         gsnNodeStat = data;
         currentGSN = ZkCoordinationProtocol.ZkGsnState.parseFrom(data.getData());
+        LOG.info("GSN loaded for " + localNodeId + ": " + currentGSN.toString());
       }
     } catch (KeeperException e) {
       throw new IOException("Failed", e);

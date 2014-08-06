@@ -99,8 +99,8 @@ public class ZkAgreementsStorage {
     scheduler = Executors
             .newScheduledThreadPool(1, new ThreadFactoryBuilder().setDaemon(true)
                     .setNameFormat("ZkAgreementsStorage-%d").build());
-    nextBucket(0);
     final ZkCoordinationProtocol.ZkBucketsState state = getOrCreateState(0);
+    nextBucket(state.getMaxBucket());
     scheduler.scheduleAtFixedRate(new BucketCleaner(this), cleanupInterval, cleanupInterval,
             TimeUnit.SECONDS);
     LOG.info("Initialized agreements storage at " + zkAgreementsPath + " state:" + state);
@@ -406,11 +406,14 @@ public class ZkAgreementsStorage {
       LOG.info("Removing buckets: " + toRemove);
       for (String s : toRemove) {
         long bucketId = Long.parseLong(s);
+        String bucketLockPath = getZkAgreementBucketLockPath(bucketId);
         String bucketDeletedPath = getZkAgreementBucketDeletedPath(bucketId);
         zooKeeper.create(bucketDeletedPath,
                 EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
+        if (zooKeeper.exists(bucketLockPath).isExists())
+          continue;
         try {
-          zooKeeper.create(getZkAgreementBucketLockPath(bucketId),
+          zooKeeper.create(bucketLockPath,
                   EMPTY_BYTES, defaultAcl, CreateMode.EPHEMERAL, false);
         } catch (KeeperException.NodeExistsException nee) {
           // already locked by other process
@@ -435,7 +438,7 @@ public class ZkAgreementsStorage {
           zooKeeper.delete(bucketDeletedPath);
           LOG.info("Removed bucket: " + s);
         } finally {
-          zooKeeper.delete(getZkAgreementBucketLockPath(bucketId));
+          zooKeeper.delete(bucketLockPath);
         }
       }
     }
