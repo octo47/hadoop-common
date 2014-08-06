@@ -30,23 +30,23 @@ public class LoadToolMetrics {
 
   final MetricsRegistry registry = new MetricsRegistry("LoadTool");
 
-  private final int[] QUANTILE_INTERVALS = new int[] {
-          1*60, // 1m
-          5*60, // 5m
-          60*60 // 1h
+  static final int[] QUANTILE_INTERVALS = new int[] {
+          60, // 1min
+          5*60 // 5min
   };
 
-  @Metric(value = "proposals.count", always = true)
+  @Metric(value = "proposals")
   protected MutableRate proposals;
-  protected MutableQuantiles[] proposalsLatency;
+  protected MutableQuantiles[] proposalsQuantiles;
 
   LoadToolMetrics() {
-    proposalsLatency = new MutableQuantiles[QUANTILE_INTERVALS.length];
-    for (int i = 0; i < proposalsLatency.length; i++) {
+    proposalsQuantiles = new MutableQuantiles[QUANTILE_INTERVALS.length];
+    for (int i = 0; i < proposalsQuantiles.length; i++) {
       int interval = QUANTILE_INTERVALS[i];
-      proposalsLatency[i] = registry.newQuantiles(
-              "latency" + interval + "s",
-              "Proposal latency", "ops", "latencyMicros", interval);
+      proposalsQuantiles[i] = registry.newQuantiles(
+              "ProposalLatency" + interval + "s",
+              "Proposal latency for interval " + interval + "s",
+              "ops", "millis", interval);
     }  }
 
   public static LoadToolMetrics create(LoadTool tool, long threadId) {
@@ -55,10 +55,10 @@ public class LoadToolMetrics {
             tool.getNodeId() + "-" + threadId, "CE Load Generation Tool", m);
   }
 
-  public void addProposal(long us) {
-    proposals.add(1);
-    for (MutableQuantiles mutableQuantiles : proposalsLatency) {
-      mutableQuantiles.add(us);
+  public void addProposal(long ms) {
+    proposals.add(ms);
+    for (MutableQuantiles mutableQuantiles : proposalsQuantiles) {
+      mutableQuantiles.add(ms);
     }
   }
 }

@@ -71,7 +71,7 @@ public class ClientThread implements Runnable {
         sw.start();
         Long proposalGSN = generator.makeProposal(proposal).get();
         sw.stop();
-        metrics.addProposal(sw.elapsedTime(TimeUnit.MICROSECONDS));
+        metrics.addProposal(sw.elapsedTime(TimeUnit.MILLISECONDS));
       }
       LOG.info("Done client " + name);
     } catch (Exception e) {
