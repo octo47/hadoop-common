@@ -325,6 +325,7 @@ public class ZKCoordinationEngine extends AbstractService
     }
     isLearning = true;
     learnerThread = new Thread(createLearnerThread());
+    learnerThread.setDaemon(true);
     learnerThread.setName(getName() + "-learner");
     learnerThread.start();
   }
