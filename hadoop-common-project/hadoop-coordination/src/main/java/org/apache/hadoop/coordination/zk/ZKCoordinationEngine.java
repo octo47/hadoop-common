@@ -201,15 +201,15 @@ public class ZKCoordinationEngine extends AbstractService
     try {
       if (!zooKeeper.exists(zkRootPath).isExists()) {
         zooKeeper.create(zkRootPath, EMPTY_BYTES,
-                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, true);
       }
       if (!zooKeeper.exists(zkAgreementsPath).isExists()) {
         zooKeeper.create(zkAgreementsPath, EMPTY_BYTES,
-                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, true);
       }
       if (!zooKeeper.exists(zkGsnPath).isExists()) {
         zooKeeper.create(zkGsnPath, EMPTY_BYTES,
-                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, true);
       }
       // holding ephemeral lock for given nodeId
       zooKeeper.create(zkGsnZNode + ".alive", instanceId.getBytes(),
