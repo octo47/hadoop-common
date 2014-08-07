@@ -433,6 +433,7 @@ public class ZkAgreementsStorage {
             result.get();
           } catch (ExecutionException e) {
             LOG.error("Unable to delete items in bucket " + bucketPath, e);
+            continue;
           }
           zooKeeper.delete(bucketPath);
           zooKeeper.delete(bucketDeletedPath);
