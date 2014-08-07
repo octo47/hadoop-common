@@ -57,12 +57,13 @@ public class ClientThread implements Runnable {
       Random rnd = new Random(id);
       LOG.info("Registered with id = " + id);
 
-      long startMillis = System.currentTimeMillis();
+      Stopwatch runningTime = new Stopwatch();
+      runningTime.start();
       long iteration = 0;
       while (!Thread.currentThread().isInterrupted()
               && !done.get()
               && (iteration++ < maxIterations)
-              && System.currentTimeMillis() - startMillis < millisToRun) {
+              && (millisToRun < 0 || runningTime.elapsedMillis() < millisToRun)) {
         final LoadProposal proposal = new LoadProposal(
                 generator.getLocalNodeId(), id, rnd.nextLong(), iteration);
         if (LOG.isTraceEnabled())

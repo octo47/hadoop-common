@@ -90,7 +90,7 @@ public class LoadTool {
     final ExecutorService service = Executors.newCachedThreadPool();
     for (int i = 0; i < numThreads; i++) {
       service.submit(new ClientThread(generator, metrics,
-              conf.getLong(CE_BENCH_SECONDS_KEY, Long.MAX_VALUE / 1000) * 1000,
+              conf.getLong(CE_BENCH_SECONDS_KEY, -1) * 1000,
               conf.getLong(CE_BENCH_ITERATIONS_KEY, Long.MAX_VALUE)));
     }
     Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
