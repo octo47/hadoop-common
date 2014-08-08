@@ -20,8 +20,11 @@ package org.apache.hadoop.coordination.zk;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -36,8 +39,10 @@ import java.util.regex.Pattern;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -50,11 +55,15 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.ACL;
 
+import static com.google.common.base.Predicates.*;
+import static com.google.common.collect.Iterables.*;
+
 /**
  * @author Andrey Stepachev
  */
 public class ZkAgreementsStorage {
 
+  public static final int DELETE_BATCH_SIZE = 1024;
   private String zkBucketStatePath;
 
   public interface AgreementCallback {
@@ -115,6 +124,19 @@ public class ZkAgreementsStorage {
   }
 
   private final static Pattern bucketNamePattern = Pattern.compile("\\d{13}");
+  public static final Predicate<String> BUCKET_ZNODE = new Predicate<String>() {
+    @Override
+    public boolean apply(String znodeName) {
+      return bucketNamePattern.matcher(znodeName).matches();
+    }
+  };
+  private final static Pattern bucketLockNamePattern = Pattern.compile("\\d{13}\\.lock");
+  public static final Predicate<String> BUCKET_LOCK_ZNODE = new Predicate<String>() {
+    @Override
+    public boolean apply(String znodeName) {
+      return bucketLockNamePattern.matcher(znodeName).matches();
+    }
+  };
 
   String getZkAgreementBucketPath(long bucket) {
     return zkAgreementsPath + "/" + String.format("%013d", bucket);
@@ -392,56 +414,73 @@ public class ZkAgreementsStorage {
 
 
   private void gcBuckets() throws InterruptedException, IOException, KeeperException {
-    List<String> buckets = zooKeeper.getChildren(zkAgreementsPath);
-    Iterables.removeIf(buckets, new Predicate<String>() {
-      @Override
-      public boolean apply(String input) {
-        return !bucketNamePattern.matcher(input).matches();
+    outer:
+    do {
+      List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
+      HashSet<String> locks = Sets.newHashSet();
+      for (String lock : filter(znodes, BUCKET_LOCK_ZNODE)) {
+        locks.add(lock.replace(".lock", "")); // will remove locked buckets from queue
       }
-    });
-    int current = buckets.size();
-    if (current > zkMaxBuckets) {
+      List<String> buckets = Lists.newArrayList(
+              filter(znodes,
+                      and(BUCKET_ZNODE, not(in(locks)))));
       Collections.sort(buckets);
+      int current = buckets.size();
+      if (current <= zkMaxBuckets)
+        break;
+      // assume that after sorting locks will follow bucket znodes
       List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
-      LOG.info("Removing buckets: " + toRemove);
+      LOG.info("Buckets remove candidates" + toRemove);
       for (String s : toRemove) {
-        long bucketId = Long.parseLong(s);
-        String bucketLockPath = getZkAgreementBucketLockPath(bucketId);
-        String bucketDeletedPath = getZkAgreementBucketDeletedPath(bucketId);
-        zooKeeper.create(bucketDeletedPath,
-                EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
-        if (zooKeeper.exists(bucketLockPath).isExists())
-          continue;
+        if (deleteBucket(s))
+          break outer;
+      }
+    } while (true);
+  }
+
+  private boolean deleteBucket(String s) throws IOException, KeeperException, InterruptedException {
+    long bucketId = Long.parseLong(s);
+    String bucketLockPath = getZkAgreementBucketLockPath(bucketId);
+    String bucketDeletedPath = getZkAgreementBucketDeletedPath(bucketId);
+    zooKeeper.create(bucketDeletedPath,
+            EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
+    ZNode exists = zooKeeper.exists(bucketLockPath);
+    if (exists.isExists() && exists.getStat().getEphemeralOwner() != zooKeeper.getSessionId() ) {
+      return false;
+    }
+    try {
+      zooKeeper.create(bucketLockPath,
+              EMPTY_BYTES, defaultAcl, CreateMode.EPHEMERAL, false);
+    } catch (KeeperException.NodeExistsException nee) {
+      // already locked by other process
+      return false;
+    }
+    try {
+      LOG.info("Removing bucket: " + s);
+      final String bucketPath = getZkAgreementBucketPath(bucketId);
+      List<String> agreements = zooKeeper.getChildren(bucketPath);
+      List<List<String>> parts = Lists.partition(agreements, DELETE_BATCH_SIZE);
+      for (List<String> part : parts) {
+        ListenableFuture<List<Void>> result = Futures.allAsList(
+                Lists.transform(part, new Function<String, ListenableFuture<Void>>() {
+                  @Override
+                  public ListenableFuture<Void> apply(String input) {
+                    return zooKeeper.deleteAsync(bucketPath + "/" + input, -1);
+                  }
+                }));
         try {
-          zooKeeper.create(bucketLockPath,
-                  EMPTY_BYTES, defaultAcl, CreateMode.EPHEMERAL, false);
-        } catch (KeeperException.NodeExistsException nee) {
-          // already locked by other process
-          continue;
-        }
-        try {
-          final String bucketPath = getZkAgreementBucketPath(bucketId);
-          List<String> agreements = zooKeeper.getChildren(bucketPath);
-          ListenableFuture<List<Void>> result = Futures.allAsList(
-                  Lists.transform(agreements, new Function<String, ListenableFuture<Void>>() {
-                    @Override
-                    public ListenableFuture<Void> apply(String input) {
-                      return zooKeeper.deleteAsync(bucketPath + "/" + input, -1);
-                    }
-                  }));
-          try {
-            result.get();
-          } catch (ExecutionException e) {
-            LOG.error("Unable to delete items in bucket " + bucketPath, e);
-            continue;
-          }
-          zooKeeper.delete(bucketPath);
-          zooKeeper.delete(bucketDeletedPath);
-          LOG.info("Removed bucket: " + s);
-        } finally {
-          zooKeeper.delete(bucketLockPath);
+          result.get();
+        } catch (ExecutionException e) {
+          LOG.error("Unable to delete items in bucket " + bucketPath, e);
+          return false;
         }
       }
+      zooKeeper.delete(bucketPath);
+      zooKeeper.delete(bucketDeletedPath);
+      LOG.info("Removed bucket: " + s);
+    } finally {
+      zooKeeper.delete(bucketLockPath);
     }
+    return true;
   }
 }
