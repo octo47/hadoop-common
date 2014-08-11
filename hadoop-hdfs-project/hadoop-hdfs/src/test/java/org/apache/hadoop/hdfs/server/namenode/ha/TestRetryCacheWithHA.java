@@ -50,6 +50,7 @@ import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.DFSOutputStream;
 import org.apache.hadoop.hdfs.DFSTestUtil;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
@@ -160,7 +161,7 @@ public class TestRetryCacheWithHA {
     FSNamesystem fsn0 = cluster.getNamesystem(0);
     LightWeightCache<CacheEntry, CacheEntry> cacheSet = 
         (LightWeightCache<CacheEntry, CacheEntry>) fsn0.getRetryCache().getCacheSet();
-    assertEquals(22, cacheSet.size());
+    assertEquals(23, cacheSet.size());
     
     Map<CacheEntry, CacheEntry> oldEntries = 
         new HashMap<CacheEntry, CacheEntry>();
@@ -181,7 +182,7 @@ public class TestRetryCacheWithHA {
     FSNamesystem fsn1 = cluster.getNamesystem(1);
     cacheSet = (LightWeightCache<CacheEntry, CacheEntry>) fsn1
         .getRetryCache().getCacheSet();
-    assertEquals(22, cacheSet.size());
+    assertEquals(23, cacheSet.size());
     iter = cacheSet.iterator();
     while (iter.hasNext()) {
       CacheEntry entry = iter.next();
@@ -725,7 +726,12 @@ public class TestRetryCacheWithHA {
       
       client.getNamenode().updatePipeline(client.getClientName(), oldBlock,
           newBlock, newNodes, storageIDs);
-      out.close();
+      // close can fail if the out.close() commit the block after block received
+      // notifications from Datanode.
+      // Since datanodes and output stream have still old genstamps, these
+      // blocks will be marked as corrupt after HDFS-5723 if RECEIVED
+      // notifications reaches namenode first and close() will fail.
+      DFSTestUtil.abortStream((DFSOutputStream) out.getWrappedStream());
     }
 
     @Override
@@ -1047,6 +1053,49 @@ public class TestRetryCacheWithHA {
     }
   }
 
+  /** removeXAttr */
+  class RemoveXAttrOp extends AtMostOnceOp {
+    private final String src;
+
+    RemoveXAttrOp(DFSClient client, String src) {
+      super("removeXAttr", client);
+      this.src = src;
+    }
+
+    @Override
+    void prepare() throws Exception {
+      Path p = new Path(src);
+      if (!dfs.exists(p)) {
+        DFSTestUtil.createFile(dfs, p, BlockSize, DataNodes, 0);
+        client.setXAttr(src, "user.key", "value".getBytes(),
+          EnumSet.of(XAttrSetFlag.CREATE));
+      }
+    }
+
+    @Override
+    void invoke() throws Exception {
+      client.removeXAttr(src, "user.key");
+    }
+
+    @Override
+    boolean checkNamenodeBeforeReturn() throws Exception {
+      for (int i = 0; i < CHECKTIMES; i++) {
+        Map<String, byte[]> iter = dfs.getXAttrs(new Path(src));
+        Set<String> keySet = iter.keySet();
+        if (!keySet.contains("user.key")) {
+          return true;
+        }
+        Thread.sleep(1000);
+      }
+      return false;
+    }
+
+    @Override
+    Object getResult() {
+      return null;
+    }
+  }
+
   @Test (timeout=60000)
   public void testCreateSnapshot() throws Exception {
     final DFSClient client = genClientWithDummyHandler();
@@ -1180,6 +1229,13 @@ public class TestRetryCacheWithHA {
   public void testSetXAttr() throws Exception {
     DFSClient client = genClientWithDummyHandler();
     AtMostOnceOp op = new SetXAttrOp(client, "/setxattr");
+    testClientRetryWithFailover(op);
+  }
+
+  @Test (timeout=60000)
+  public void testRemoveXAttr() throws Exception {
+    DFSClient client = genClientWithDummyHandler();
+    AtMostOnceOp op = new RemoveXAttrOp(client, "/removexattr");
     testClientRetryWithFailover(op);
   }
 

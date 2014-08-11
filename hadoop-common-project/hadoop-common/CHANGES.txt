@@ -12,6 +12,59 @@ Release 2.6.0 - UNRELEASED
 
     HADOOP-10815. Implement Windows equivalent of mlock. (cnauroth)
 
+    HADOOP-7664. Remove warmings when overriding final parameter configuration
+    if the override value is same as the final parameter value.
+    (Ravi Prakash via suresh)
+
+    HADOOP-10673. Update rpc metrics when the call throws an exception. (Ming Ma
+    via jing9)
+
+    HADOOP-10845. Add common tests for ACLs in combination with viewfs.
+    (Stephen Chu via cnauroth)
+
+    HADOOP-10839. Add unregisterSource() to MetricsSystem API.
+    (Shanyu Zhao via cnauroth)
+
+    HADOOP-10607. Create an API to separate credentials/password storage
+    from applications (Larry McCay via omalley)
+
+    HADOOP-10732. Fix locking in credential update. (Ted Yu via omalley)
+
+    HADOOP-10733. Fix potential null dereference in CredShell. (Ted Yu via
+    omalley)
+
+    HADOOP-10610. Upgrade S3n s3.fs.buffer.dir to support multi directories.
+    (Ted Malaska via atm)
+
+    HADOOP-10817. ProxyUsers configuration should support configurable 
+    prefixes. (tucu)
+
+    HADOOP-10755. Support negative caching of user-group mapping.
+    (Lei Xu via wang)
+
+    HADOOP-10855. Allow Text to be read with a known Length. (todd)
+
+    HADOOP-10887. Add XAttrs to ViewFs and make XAttrs + ViewFileSystem
+    internal dir behavior consistent. (Stephen Chu via wang)
+
+    HADOOP-10882. Move DirectBufferPool into common util. (todd)
+
+    HADOOP-8069. Enable TCP_NODELAY by default for IPC. (Todd Lipcon via
+    Arpit Agarwal)
+
+    HADOOP-10902. Deletion of directories with snapshots will not output
+    reason for trash move failure. (Stephen Chu via wang)
+
+    HADOOP-10900. CredentialShell args should use single-dash style. (wang)
+
+    HADOOP-10903. Enhance hadoop classpath command to expand wildcards or write
+    classpath into jar manifest. (cnauroth)
+
+    HADOOP-10791. AuthenticationFilter should support externalizing the 
+    secret for signing and provide rotation support. (rkanter via tucu)
+
+    HADOOP-10771. Refactor HTTP delegation support out of httpfs to common, PART 1. (tucu)
+
   OPTIMIZATIONS
 
   BUG FIXES
@@ -27,6 +80,44 @@ Release 2.6.0 - UNRELEASED
 
     HADOOP-10810. Clean up native code compilation warnings. (cnauroth)
 
+    HADOOP-9921. daemon scripts should remove pid file on stop call after stop
+    or process is found not running ( vinayakumarb )
+
+    HADOOP-10591.  Compression codecs must used pooled direct buffers or
+    deallocate direct buffers when stream is closed (cmccabe)
+
+    HADOOP-10857.  Native Libraries Guide doen't mention a dependency on
+    openssl-development package (ozawa via cmccabe)
+
+    HADOOP-10866. RawLocalFileSystem fails to read symlink targets via the stat
+    command when the format of the stat command uses non-curly quotes (yzhang
+    via cmccabe)
+
+    HADOOP-10830. Missing lock in JavaKeyStoreProvider.createCredentialEntry.
+    (Benoy Antony via umamahesh)
+
+    HADOOP-10928. Incorrect usage on `hadoop credential list`.
+    (Josh Elser via wang)
+
+    HADOOP-10927. Fix CredentialShell help behavior and error codes.
+    (Josh Elser via wang)
+
+    HADOOP-10933. FileBasedKeyStoresFactory Should use Configuration.getPassword 
+    for SSL Passwords. (lmccay via tucu)
+
+    HADOOP-10759. Remove hardcoded JAVA_HEAP_MAX. (Sam Liu via Eric Yang)
+
+    HADOOP-10905. LdapGroupsMapping Should use configuration.getPassword for SSL
+    and LDAP Passwords. (lmccay via brandonli)
+
+    HADOOP-10931 compile error on tools/hadoop-openstack (xukun via stevel)
+
+    HADOOP-10929. Typo in Configuration.getPasswordFromCredentialProviders
+    (lmccay via brandonli)
+
+    HADOOP-10402. Configuration.getValByRegex does not substitute for
+    variables. (Robert Kanter via kasha)
+
 Release 2.5.0 - UNRELEASED
 
   INCOMPATIBLE CHANGES
@@ -38,6 +129,9 @@ Release 2.5.0 - UNRELEASED
     HADOOP-9704. Write metrics sink plugin for Hadoop/Graphite (Chu Tong, Alex Newman and Babak Behzad via raviprak)
 
     HADOOP-8943. Support multiple group mapping providers. (Kai Zheng via brandonli)
+
+    HADOOP-9361 Strictly define the expected behavior of filesystem APIs and
+    write tests to verify compliance (stevel)
 
   IMPROVEMENTS
 
@@ -135,9 +229,6 @@ Release 2.5.0 - UNRELEASED
     HADOOP-10747. Support configurable retries on SASL connection failures in
     RPC client. (cnauroth)
 
-    HADOOP-10674. Improve PureJavaCrc32 performance and use java.util.zip.CRC32
-    for Java 7 and above. (szetszwo)
-
     HADOOP-10754. Reenable several HA ZooKeeper-related tests on Windows.
     (cnauroth)
 
@@ -149,9 +240,6 @@ Release 2.5.0 - UNRELEASED
 
     HADOOP-10767. Clean up unused code in Ls shell command. (cnauroth)
 
-    HADOOP-9361 Strictly define the expected behavior of filesystem APIs and
-    write tests to verify compliance (stevel)
-
     HADOOP-9651 Filesystems to throw FileAlreadyExistsException in
     createFile(path, overwrite=false) when the file exists (stevel)
     
@@ -162,7 +250,13 @@ Release 2.5.0 - UNRELEASED
 
     HADOOP-10782. Fix typo in DataChecksum class. (Jingguo Yao via suresh)
 
+    HADOOP-10896. Update compatibility doc to capture visibility of 
+    un-annotated classes/ methods. (kasha)
+
   OPTIMIZATIONS
+
+    HADOOP-10674. Improve PureJavaCrc32 performance and use java.util.zip.CRC32
+    for Java 7 and above. (szetszwo)
 
   BUG FIXES 
 
@@ -326,6 +420,32 @@ Release 2.5.0 - UNRELEASED
 
     HADOOP-10801 dead link in site.xml (Akira AJISAKA via stevel)
 
+    HADOOP-10590. ServiceAuthorizationManager is not threadsafe. (Benoy Antony via vinayakumarb)
+
+    HADOOP-10711. Cleanup some extra dependencies from hadoop-auth. (rkanter via tucu)
+
+    HADOOP-10479. Fix new findbugs warnings in hadoop-minikdc.
+    (Swarnim Kulkarni via wheat9)
+
+    HADOOP-10715. Remove public GraphiteSink#setWriter (Babak Behzad via raviprak)
+
+    HADOOP-10710. hadoop.auth cookie is not properly constructed according to 
+    RFC2109. (Juan Yu via tucu)
+
+    HADOOP-10864. Tool documentenation is broken. (Akira Ajisaka
+    via Arpit Agarwal)
+
+    HADOOP-10872. TestPathData fails intermittently with "Mkdirs failed
+    to create d1". (Yongjun Zhang via Arpit Agarwal)
+
+    HADOOP-10890. TestDFVariations.testMount fails intermittently. (Yongjun
+    Zhang via Arpit Agarwal)
+
+    HADOOP-10894. Fix dead link in ToolRunner documentation. (Akira Ajisaka
+    via Arpit Agarwal)
+
+    HADOOP-10910. Increase findbugs maxHeap size. (wang)
+
   BREAKDOWN OF HADOOP-10514 SUBTASKS AND RELATED JIRAS
 
     HADOOP-10520. Extended attributes definition and FileSystem APIs for
@@ -346,18 +466,6 @@ Release 2.5.0 - UNRELEASED
 
     HADOOP-10561. Copy command with preserve option should handle Xattrs.
     (Yi Liu via cnauroth)
-
-    HADOOP-10590. ServiceAuthorizationManager is not threadsafe. (Benoy Antony via vinayakumarb)
-
-    HADOOP-10711. Cleanup some extra dependencies from hadoop-auth. (rkanter via tucu)
-
-    HADOOP-10479. Fix new findbugs warnings in hadoop-minikdc.
-    (Swarnim Kulkarni via wheat9)
-
-    HADOOP-10715. Remove public GraphiteSink#setWriter (Babak Behzad via raviprak)
-
-    HADOOP-10710. hadoop.auth cookie is not properly constructed according to 
-    RFC2109. (Juan Yu via tucu)
 
 Release 2.4.1 - 2014-06-23 
 

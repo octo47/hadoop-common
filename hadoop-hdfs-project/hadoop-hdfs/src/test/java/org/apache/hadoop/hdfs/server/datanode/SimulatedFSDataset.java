@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -744,14 +745,14 @@ public class SimulatedFSDataset implements FsDatasetSpi<FsVolumeSpi> {
   }
 
   @Override // FsDatasetSpi
-  public synchronized ReplicaInPipelineInterface createRbw(ExtendedBlock b) 
-  throws IOException {
-    return createTemporary(b);
+  public synchronized ReplicaInPipelineInterface createRbw(
+      StorageType storageType, ExtendedBlock b) throws IOException {
+    return createTemporary(storageType, b);
   }
 
   @Override // FsDatasetSpi
-  public synchronized ReplicaInPipelineInterface createTemporary(ExtendedBlock b)
-      throws IOException {
+  public synchronized ReplicaInPipelineInterface createTemporary(
+      StorageType storageType, ExtendedBlock b) throws IOException {
     if (isValidBlock(b)) {
           throw new ReplicaAlreadyExistsException("Block " + b + 
               " is valid, and cannot be written to.");
@@ -1079,6 +1080,11 @@ public class SimulatedFSDataset implements FsDatasetSpi<FsVolumeSpi> {
 
   @Override
   public List<FsVolumeSpi> getVolumes() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void addVolumes(Collection<StorageLocation> volumes) {
     throw new UnsupportedOperationException();
   }
 

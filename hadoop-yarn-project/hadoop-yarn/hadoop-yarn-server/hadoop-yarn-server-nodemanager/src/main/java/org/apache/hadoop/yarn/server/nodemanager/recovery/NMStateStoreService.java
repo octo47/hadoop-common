@@ -29,10 +29,14 @@ import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.service.AbstractService;
+import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
+import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.proto.YarnProtos.LocalResourceProto;
+import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.ContainerManagerApplicationProto;
 import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.DeletionServiceDeleteTaskProto;
 import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.LocalizedResourceProto;
+import org.apache.hadoop.yarn.server.api.records.MasterKey;
 
 @Private
 @Unstable
@@ -40,6 +44,19 @@ public abstract class NMStateStoreService extends AbstractService {
 
   public NMStateStoreService(String name) {
     super(name);
+  }
+
+  public static class RecoveredApplicationsState {
+    List<ContainerManagerApplicationProto> applications;
+    List<ApplicationId> finishedApplications;
+
+    public List<ContainerManagerApplicationProto> getApplications() {
+      return applications;
+    }
+
+    public List<ApplicationId> getFinishedApplications() {
+      return finishedApplications;
+    }
   }
 
   public static class LocalResourceTrackerState {
@@ -100,6 +117,42 @@ public abstract class NMStateStoreService extends AbstractService {
     }
   }
 
+  public static class RecoveredNMTokensState {
+    MasterKey currentMasterKey;
+    MasterKey previousMasterKey;
+    Map<ApplicationAttemptId, MasterKey> applicationMasterKeys;
+
+    public MasterKey getCurrentMasterKey() {
+      return currentMasterKey;
+    }
+
+    public MasterKey getPreviousMasterKey() {
+      return previousMasterKey;
+    }
+
+    public Map<ApplicationAttemptId, MasterKey> getApplicationMasterKeys() {
+      return applicationMasterKeys;
+    }
+  }
+
+  public static class RecoveredContainerTokensState {
+    MasterKey currentMasterKey;
+    MasterKey previousMasterKey;
+    Map<ContainerId, Long> activeTokens;
+
+    public MasterKey getCurrentMasterKey() {
+      return currentMasterKey;
+    }
+
+    public MasterKey getPreviousMasterKey() {
+      return previousMasterKey;
+    }
+
+    public Map<ContainerId, Long> getActiveTokens() {
+      return activeTokens;
+    }
+  }
+
   /** Initialize the state storage */
   @Override
   public void serviceInit(Configuration conf) throws IOException {
@@ -121,6 +174,19 @@ public abstract class NMStateStoreService extends AbstractService {
   public boolean canRecover() {
     return true;
   }
+
+
+  public abstract RecoveredApplicationsState loadApplicationsState()
+      throws IOException;
+
+  public abstract void storeApplication(ApplicationId appId,
+      ContainerManagerApplicationProto p) throws IOException;
+
+  public abstract void storeFinishedApplication(ApplicationId appId)
+      throws IOException;
+
+  public abstract void removeApplication(ApplicationId appId)
+      throws IOException;
 
 
   /**
@@ -171,6 +237,38 @@ public abstract class NMStateStoreService extends AbstractService {
       DeletionServiceDeleteTaskProto taskProto) throws IOException;
 
   public abstract void removeDeletionTask(int taskId) throws IOException;
+
+
+  public abstract RecoveredNMTokensState loadNMTokensState()
+      throws IOException;
+
+  public abstract void storeNMTokenCurrentMasterKey(MasterKey key)
+      throws IOException;
+
+  public abstract void storeNMTokenPreviousMasterKey(MasterKey key)
+      throws IOException;
+
+  public abstract void storeNMTokenApplicationMasterKey(
+      ApplicationAttemptId attempt, MasterKey key) throws IOException;
+
+  public abstract void removeNMTokenApplicationMasterKey(
+      ApplicationAttemptId attempt) throws IOException;
+
+
+  public abstract RecoveredContainerTokensState loadContainerTokensState()
+      throws IOException;
+
+  public abstract void storeContainerTokenCurrentMasterKey(MasterKey key)
+      throws IOException;
+
+  public abstract void storeContainerTokenPreviousMasterKey(MasterKey key)
+      throws IOException;
+
+  public abstract void storeContainerToken(ContainerId containerId,
+      Long expirationTime) throws IOException;
+
+  public abstract void removeContainerToken(ContainerId containerId)
+      throws IOException;
 
 
   protected abstract void initStorage(Configuration conf) throws IOException;

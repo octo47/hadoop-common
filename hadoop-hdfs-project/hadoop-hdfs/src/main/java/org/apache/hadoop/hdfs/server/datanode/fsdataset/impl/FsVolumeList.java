@@ -18,13 +18,17 @@
 package org.apache.hadoop.hdfs.server.datanode.fsdataset.impl;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.StorageType;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.VolumeChoosingPolicy;
-import org.apache.hadoop.util.Time;
 import org.apache.hadoop.util.DiskChecker.DiskErrorException;
+import org.apache.hadoop.util.Time;
 
 class FsVolumeList {
   /**
@@ -36,9 +40,8 @@ class FsVolumeList {
   private final VolumeChoosingPolicy<FsVolumeImpl> blockChooser;
   private volatile int numFailedVolumes;
 
-  FsVolumeList(List<FsVolumeImpl> volumes, int failedVols,
+  FsVolumeList(int failedVols,
       VolumeChoosingPolicy<FsVolumeImpl> blockChooser) {
-    this.volumes = Collections.unmodifiableList(volumes);
     this.blockChooser = blockChooser;
     this.numFailedVolumes = failedVols;
   }
@@ -52,11 +55,18 @@ class FsVolumeList {
    * by a single thread and next volume is chosen with no concurrent
    * update to {@link #volumes}.
    * @param blockSize free space needed on the volume
+   * @param storageType the desired {@link StorageType} 
    * @return next volume to store the block in.
    */
-  // TODO should choose volume with storage type
-  synchronized FsVolumeImpl getNextVolume(long blockSize) throws IOException {
-    return blockChooser.chooseVolume(volumes, blockSize);
+  synchronized FsVolumeImpl getNextVolume(StorageType storageType,
+      long blockSize) throws IOException {
+    final List<FsVolumeImpl> list = new ArrayList<FsVolumeImpl>(volumes.size());
+    for(FsVolumeImpl v : volumes) {
+      if (v.getStorageType() == storageType) {
+        list.add(v);
+      }
+    }
+    return blockChooser.chooseVolume(list, blockSize);
   }
     
   long getDfsUsed() throws IOException {
@@ -89,12 +99,6 @@ class FsVolumeList {
       remaining += vol.getAvailable();
     }
     return remaining;
-  }
-    
-  void initializeReplicaMaps(ReplicaMap globalReplicaMap) throws IOException {
-    for (FsVolumeImpl v : volumes) {
-      v.getVolumeMap(globalReplicaMap);
-    }
   }
   
   void getAllVolumesMap(final String bpid, final ReplicaMap volumeMap) throws IOException {
@@ -194,6 +198,19 @@ class FsVolumeList {
     return volumes.toString();
   }
 
+  /**
+   * Dynamically add new volumes to the existing volumes that this DN manages.
+   * @param newVolume the instance of new FsVolumeImpl.
+   */
+  synchronized void addVolume(FsVolumeImpl newVolume) {
+    // Make a copy of volumes to add new volumes.
+    final List<FsVolumeImpl> volumeList = volumes == null ?
+        new ArrayList<FsVolumeImpl>() :
+        new ArrayList<FsVolumeImpl>(volumes);
+    volumeList.add(newVolume);
+    volumes = Collections.unmodifiableList(volumeList);
+    FsDatasetImpl.LOG.info("Added new volume: " + newVolume.toString());
+  }
 
   void addBlockPool(final String bpid, final Configuration conf) throws IOException {
     long totalStartTime = Time.monotonicNow();

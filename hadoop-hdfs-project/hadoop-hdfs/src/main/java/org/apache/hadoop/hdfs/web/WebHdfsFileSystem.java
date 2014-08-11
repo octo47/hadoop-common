@@ -54,6 +54,7 @@ import org.apache.hadoop.fs.XAttrCodec;
 import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
+import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSUtil;
@@ -157,7 +158,7 @@ public class WebHdfsFileSystem extends FileSystem
     // getCanonicalUri() in order to handle the case where no port is
     // specified in the URI
     this.tokenServiceName = isLogicalUri ?
-        HAUtil.buildTokenServiceForLogicalUri(uri)
+        HAUtil.buildTokenServiceForLogicalUri(uri, getScheme())
         : SecurityUtil.buildTokenService(getCanonicalUri());
 
     if (!isHA) {
@@ -248,8 +249,10 @@ public class WebHdfsFileSystem extends FileSystem
   }
 
   @Override
-  protected int getDefaultPort() {
-    return DFSConfigKeys.DFS_NAMENODE_HTTP_PORT_DEFAULT;
+  @VisibleForTesting
+  public int getDefaultPort() {
+    return getConf().getInt(DFSConfigKeys.DFS_NAMENODE_HTTP_PORT_KEY,
+        DFSConfigKeys.DFS_NAMENODE_HTTP_PORT_DEFAULT);
   }
 
   @Override
@@ -447,6 +450,7 @@ public class WebHdfsFileSystem extends FileSystem
 
     protected final HttpOpParam.Op op;
     private final boolean redirected;
+    protected ExcludeDatanodesParam excludeDatanodes = new ExcludeDatanodesParam("");
 
     private boolean checkRetry;
 
@@ -498,6 +502,10 @@ public class WebHdfsFileSystem extends FileSystem
      * a DN such as open and checksum
      */
     private HttpURLConnection connect(URL url) throws IOException {
+      //redirect hostname and port
+      String redirectHost = null;
+
+      
       // resolve redirects for a DN operation unless already resolved
       if (op.getRedirect() && !redirected) {
         final HttpOpParam.Op redirectOp =
@@ -510,11 +518,24 @@ public class WebHdfsFileSystem extends FileSystem
         try {
           validateResponse(redirectOp, conn, false);
           url = new URL(conn.getHeaderField("Location"));
+          redirectHost = url.getHost() + ":" + url.getPort();
         } finally {
           conn.disconnect();
         }
       }
-      return connect(op, url);
+      try {
+        return connect(op, url);
+      } catch (IOException ioe) {
+        if (redirectHost != null) {
+          if (excludeDatanodes.getValue() != null) {
+            excludeDatanodes = new ExcludeDatanodesParam(redirectHost + ","
+                + excludeDatanodes.getValue());
+          } else {
+            excludeDatanodes = new ExcludeDatanodesParam(redirectHost);
+          }
+        }
+        throw ioe;
+      }      
     }
 
     private HttpURLConnection connect(final HttpOpParam.Op op, final URL url)
@@ -651,7 +672,14 @@ public class WebHdfsFileSystem extends FileSystem
     
     @Override
     protected URL getUrl() throws IOException {
-      return toUrl(op, fspath, parameters);
+      if (excludeDatanodes.getValue() != null) {
+        Param<?, ?>[] tmpParam = new Param<?, ?>[parameters.length + 1];
+        System.arraycopy(parameters, 0, tmpParam, 0, parameters.length);
+        tmpParam[parameters.length] = excludeDatanodes;
+        return toUrl(op, fspath, tmpParam);
+      } else {
+        return toUrl(op, fspath, parameters);
+      }
     }
   }
 
@@ -1328,6 +1356,12 @@ public class WebHdfsFileSystem extends FileSystem
             JsonUtil.toLocatedBlocks(json));
       }
     }.run();
+  }
+
+  @Override
+  public void access(final Path path, final FsAction mode) throws IOException {
+    final HttpOpParam.Op op = GetOpParam.Op.CHECKACCESS;
+    new FsPathRunner(op, path, new FsActionParam(mode)).run();
   }
 
   @Override

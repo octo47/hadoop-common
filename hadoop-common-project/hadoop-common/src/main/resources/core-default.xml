@@ -198,6 +198,20 @@ for ldap providers in the same way as above does.
 </property>
 
 <property>
+  <name>hadoop.security.groups.negative-cache.secs</name>
+  <value>30</value>
+  <description>
+    Expiration time for entries in the the negative user-to-group mapping
+    caching, in seconds. This is useful when invalid users are retrying
+    frequently. It is suggested to set a small value for this expiration, since
+    a transient error in group lookup could temporarily lock out a legitimate
+    user.
+
+    Set this to zero or negative value to disable negative user-to-group caching.
+  </description>
+</property>
+
+<property>
   <name>hadoop.security.groups.cache.warn.after.ms</name>
   <value>5000</value>
   <description>
@@ -784,25 +798,6 @@ for ldap providers in the same way as above does.
                client connections.
   </description>
 </property>
-
-<property>
-  <name>ipc.server.tcpnodelay</name>
-  <value>false</value>
-  <description>Turn on/off Nagle's algorithm for the TCP socket connection on 
-  the server. Setting to true disables the algorithm and may decrease latency
-  with a cost of more/smaller packets. 
-  </description>
-</property>
-
-<property>
-  <name>ipc.client.tcpnodelay</name>
-  <value>false</value>
-  <description>Turn on/off Nagle's algorithm for the TCP socket connection on 
-  the client. Setting to true disables the algorithm and may decrease latency
-  with a cost of more/smaller packets. 
-  </description>
-</property>
-
 
 <!-- Proxy Configuration -->
 

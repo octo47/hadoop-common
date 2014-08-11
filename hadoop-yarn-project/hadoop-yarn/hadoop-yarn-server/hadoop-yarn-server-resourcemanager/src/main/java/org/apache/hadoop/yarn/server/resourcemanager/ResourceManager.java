@@ -32,11 +32,13 @@ import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.ha.HAServiceProtocol;
 import org.apache.hadoop.ha.HAServiceProtocol.HAServiceState;
+import org.apache.hadoop.http.lib.StaticUserWebFilter;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.source.JvmMetrics;
 import org.apache.hadoop.security.Groups;
 import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authentication.server.KerberosAuthenticationHandler;
 import org.apache.hadoop.security.authorize.ProxyUsers;
 import org.apache.hadoop.service.AbstractService;
 import org.apache.hadoop.service.CompositeService;
@@ -88,8 +90,11 @@ import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEv
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEventType;
 import org.apache.hadoop.yarn.server.resourcemanager.security.DelegationTokenRenewer;
 import org.apache.hadoop.yarn.server.resourcemanager.security.QueueACLsManager;
+import org.apache.hadoop.yarn.server.resourcemanager.security.RMAuthenticationHandler;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.RMWebApp;
 import org.apache.hadoop.yarn.server.security.ApplicationACLsManager;
+import org.apache.hadoop.yarn.server.security.http.RMAuthenticationFilter;
+import org.apache.hadoop.yarn.server.security.http.RMAuthenticationFilterInitializer;
 import org.apache.hadoop.yarn.server.webproxy.AppReportFetcher;
 import org.apache.hadoop.yarn.server.webproxy.ProxyUriUtils;
 import org.apache.hadoop.yarn.server.webproxy.WebAppProxy;
@@ -150,7 +155,8 @@ public class ResourceManager extends CompositeService implements Recoverable {
   private AppReportFetcher fetcher = null;
   protected ResourceTrackerService resourceTracker;
 
-  private String webAppAddress;
+  @VisibleForTesting
+  protected String webAppAddress;
   private ConfigurationProvider configurationProvider = null;
   /** End of Active services */
 
@@ -225,7 +231,9 @@ public class ResourceManager extends CompositeService implements Recoverable {
     }
     createAndInitActiveServices();
 
-    webAppAddress = WebAppUtils.getRMWebAppURLWithoutScheme(this.conf);
+    webAppAddress = WebAppUtils.getWebAppBindURL(this.conf,
+                      YarnConfiguration.RM_BIND_HOST,
+                      WebAppUtils.getRMWebAppURLWithoutScheme(this.conf));
 
     this.rmLoginUGI = UserGroupInformation.getCurrentUser();
 
@@ -453,7 +461,6 @@ public class ResourceManager extends CompositeService implements Recoverable {
       rmDispatcher.register(RMAppManagerEventType.class, rmAppManager);
 
       clientRM = createClientRMService();
-      rmContext.setClientRMService(clientRM);
       addService(clientRM);
       rmContext.setClientRMService(clientRM);
 
@@ -789,6 +796,62 @@ public class ResourceManager extends CompositeService implements Recoverable {
   }
   
   protected void startWepApp() {
+
+    // Use the customized yarn filter instead of the standard kerberos filter to
+    // allow users to authenticate using delegation tokens
+    // 3 conditions need to be satisfied -
+    // 1. security is enabled
+    // 2. http auth type is set to kerberos
+    // 3. "yarn.resourcemanager.webapp.use-yarn-filter" override is set to true
+
+    Configuration conf = getConfig();
+    boolean useYarnAuthenticationFilter =
+        conf.getBoolean(
+          YarnConfiguration.RM_WEBAPP_DELEGATION_TOKEN_AUTH_FILTER,
+          YarnConfiguration.DEFAULT_RM_WEBAPP_DELEGATION_TOKEN_AUTH_FILTER);
+    String authPrefix = "hadoop.http.authentication.";
+    String authTypeKey = authPrefix + "type";
+    String initializers = conf.get("hadoop.http.filter.initializers");
+    if (UserGroupInformation.isSecurityEnabled()
+        && useYarnAuthenticationFilter
+        && conf.get(authTypeKey, "").equalsIgnoreCase(
+          KerberosAuthenticationHandler.TYPE)) {
+      LOG.info("Using RM authentication filter(kerberos/delegation-token)"
+          + " for RM webapp authentication");
+      RMAuthenticationHandler
+        .setSecretManager(getClientRMService().rmDTSecretManager);
+      String yarnAuthKey =
+          authPrefix + RMAuthenticationFilter.AUTH_HANDLER_PROPERTY;
+      conf.setStrings(yarnAuthKey, RMAuthenticationHandler.class.getName());
+
+      initializers =
+          initializers == null || initializers.isEmpty() ? "" : ","
+              + initializers;
+      if (!initializers.contains(RMAuthenticationFilterInitializer.class
+        .getName())) {
+        conf.set("hadoop.http.filter.initializers",
+          RMAuthenticationFilterInitializer.class.getName() + initializers);
+      }
+    }
+
+    // if security is not enabled and the default filter initializer has been
+    // set, set the initializer to include the
+    // RMAuthenticationFilterInitializer which in turn will set up the simple
+    // auth filter.
+
+    if (!UserGroupInformation.isSecurityEnabled()) {
+      if (initializers == null || initializers.isEmpty()) {
+        conf.set("hadoop.http.filter.initializers",
+          RMAuthenticationFilterInitializer.class.getName());
+        conf.set(authTypeKey, "simple");
+      } else if (initializers.equals(StaticUserWebFilter.class.getName())) {
+        conf.set("hadoop.http.filter.initializers",
+          RMAuthenticationFilterInitializer.class.getName() + ","
+              + initializers);
+        conf.set(authTypeKey, "simple");
+      }
+    }
+
     Builder<ApplicationMasterService> builder = 
         WebApps
             .$for("cluster", ApplicationMasterService.class, masterService,
@@ -1026,6 +1089,9 @@ public class ResourceManager extends CompositeService implements Recoverable {
     // recover RMdelegationTokenSecretManager
     rmContext.getRMDelegationTokenSecretManager().recover(state);
 
+    // recover AMRMTokenSecretManager
+    rmContext.getAMRMTokenSecretManager().recover(state);
+
     // recover applications
     rmAppManager.recover(state);
   }
@@ -1035,8 +1101,8 @@ public class ResourceManager extends CompositeService implements Recoverable {
     StringUtils.startupShutdownMessage(ResourceManager.class, argv, LOG);
     try {
       Configuration conf = new YarnConfiguration();
-      // If -format, then delete RMStateStore; else startup normally
-      if (argv.length == 1 && argv[0].equals("-format")) {
+      // If -format-state-store, then delete RMStateStore; else startup normally
+      if (argv.length == 1 && argv[0].equals("-format-state-store")) {
         deleteRMStateStore(conf);
       } else {
         ResourceManager resourceManager = new ResourceManager();

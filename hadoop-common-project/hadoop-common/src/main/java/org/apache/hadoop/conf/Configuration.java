@@ -78,6 +78,9 @@ import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.alias.CredentialProvider;
+import org.apache.hadoop.security.alias.CredentialProvider.CredentialEntry;
+import org.apache.hadoop.security.alias.CredentialProviderFactory;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringInterner;
 import org.apache.hadoop.util.StringUtils;
@@ -1762,6 +1765,111 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
   }
 
   /**
+   * Get the value for a known password configuration element.
+   * In order to enable the elimination of clear text passwords in config,
+   * this method attempts to resolve the property name as an alias through
+   * the CredentialProvider API and conditionally fallsback to config.
+   * @param name property name
+   * @return password
+   */
+  public char[] getPassword(String name) throws IOException {
+    char[] pass = null;
+
+    pass = getPasswordFromCredentialProviders(name);
+
+    if (pass == null) {
+      pass = getPasswordFromConfig(name);
+    }
+
+    return pass;
+  }
+
+  /**
+   * Try and resolve the provided element name as a credential provider
+   * alias.
+   * @param name alias of the provisioned credential
+   * @return password or null if not found
+   * @throws IOException
+   */
+  protected char[] getPasswordFromCredentialProviders(String name)
+      throws IOException {
+    char[] pass = null;
+    try {
+      List<CredentialProvider> providers =
+          CredentialProviderFactory.getProviders(this);
+
+      if (providers != null) {
+        for (CredentialProvider provider : providers) {
+          try {
+            CredentialEntry entry = provider.getCredentialEntry(name);
+            if (entry != null) {
+              pass = entry.getCredential();
+              break;
+            }
+          }
+          catch (IOException ioe) {
+            throw new IOException("Can't get key " + name + " from key provider" +
+            		"of type: " + provider.getClass().getName() + ".", ioe);
+          }
+        }
+      }
+    }
+    catch (IOException ioe) {
+      throw new IOException("Configuration problem with provider path.", ioe);
+    }
+
+    return pass;
+  }
+
+  /**
+   * Fallback to clear text passwords in configuration.
+   * @param name
+   * @return clear text password or null
+   */
+  protected char[] getPasswordFromConfig(String name) {
+    char[] pass = null;
+    if (getBoolean(CredentialProvider.CLEAR_TEXT_FALLBACK, true)) {
+      String passStr = get(name);
+      if (passStr != null) {
+        pass = passStr.toCharArray();
+      }
+    }
+    return pass;
+  }
+
+  /**
+   * Get the socket address for <code>hostProperty</code> as a
+   * <code>InetSocketAddress</code>. If <code>hostProperty</code> is
+   * <code>null</code>, <code>addressProperty</code> will be used. This
+   * is useful for cases where we want to differentiate between host
+   * bind address and address clients should use to establish connection.
+   *
+   * @param hostProperty bind host property name.
+   * @param addressProperty address property name.
+   * @param defaultAddressValue the default value
+   * @param defaultPort the default port
+   * @return InetSocketAddress
+   */
+  public InetSocketAddress getSocketAddr(
+      String hostProperty,
+      String addressProperty,
+      String defaultAddressValue,
+      int defaultPort) {
+
+    InetSocketAddress bindAddr = getSocketAddr(
+      addressProperty, defaultAddressValue, defaultPort);
+
+    final String host = get(hostProperty);
+
+    if (host == null || host.isEmpty()) {
+      return bindAddr;
+    }
+
+    return NetUtils.createSocketAddr(
+        host, bindAddr.getPort(), hostProperty);
+  }
+
+  /**
    * Get the socket address for <code>name</code> property as a
    * <code>InetSocketAddress</code>.
    * @param name property name.
@@ -1781,6 +1889,40 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
    */
   public void setSocketAddr(String name, InetSocketAddress addr) {
     set(name, NetUtils.getHostPortString(addr));
+  }
+
+  /**
+   * Set the socket address a client can use to connect for the
+   * <code>name</code> property as a <code>host:port</code>.  The wildcard
+   * address is replaced with the local host's address. If the host and address
+   * properties are configured the host component of the address will be combined
+   * with the port component of the addr to generate the address.  This is to allow
+   * optional control over which host name is used in multi-home bind-host
+   * cases where a host can have multiple names
+   * @param hostProperty the bind-host configuration name
+   * @param addressProperty the service address configuration name
+   * @param defaultAddressValue the service default address configuration value
+   * @param addr InetSocketAddress of the service listener
+   * @return InetSocketAddress for clients to connect
+   */
+  public InetSocketAddress updateConnectAddr(
+      String hostProperty,
+      String addressProperty,
+      String defaultAddressValue,
+      InetSocketAddress addr) {
+
+    final String host = get(hostProperty);
+    final String connectHostPort = getTrimmed(addressProperty, defaultAddressValue);
+
+    if (host == null || host.isEmpty() || connectHostPort == null || connectHostPort.isEmpty()) {
+      //not our case, fall back to original logic
+      return updateConnectAddr(addressProperty, addr);
+    }
+
+    final String connectHost = connectHostPort.split(":")[0];
+    // Create connect address using client address hostname and server port.
+    return updateConnectAddr(addressProperty, NetUtils.createSocketAddrForHost(
+        connectHost, addr.getPort()));
   }
   
   /**
@@ -2364,7 +2506,7 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
       if (!finalParameters.contains(attr)) {
         properties.setProperty(attr, value);
         updatingResource.put(attr, source);
-      } else {
+      } else if (!value.equals(properties.getProperty(attr))) {
         LOG.warn(name+":an attempt to override final parameter: "+attr
             +";  Ignoring.");
       }
@@ -2605,7 +2747,8 @@ public class Configuration implements Iterable<Map.Entry<String,String>>,
           item.getValue() instanceof String) {
         m = p.matcher((String)item.getKey());
         if(m.find()) { // match
-          result.put((String) item.getKey(), (String) item.getValue());
+          result.put((String) item.getKey(),
+              substituteVars(getProps().getProperty((String) item.getKey())));
         }
       }
     }
