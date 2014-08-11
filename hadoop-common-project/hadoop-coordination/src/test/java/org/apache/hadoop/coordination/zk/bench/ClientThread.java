@@ -19,13 +19,18 @@
 package org.apache.hadoop.coordination.zk.bench;
 
 import java.util.Random;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
+import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.coordination.NoQuorumException;
+import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 
 public class ClientThread implements Runnable {
 
@@ -62,7 +67,7 @@ public class ClientThread implements Runnable {
       long iteration = 0;
       while (!Thread.currentThread().isInterrupted()
               && !done.get()
-              && (iteration++ < maxIterations)
+              && iteration < maxIterations
               && (millisToRun < 0 || runningTime.elapsedMillis() < millisToRun)) {
         final LoadProposal proposal = new LoadProposal(
                 generator.getLocalNodeId(), id, rnd.nextLong(), iteration);
@@ -70,13 +75,24 @@ public class ClientThread implements Runnable {
           LOG.trace("Proposing " + proposal + " from " + name);
         Stopwatch sw = new Stopwatch();
         sw.start();
-        Long proposalGSN = generator.makeProposal(proposal).get();
+
+        SettableFuture<Long> future = generator.makeProposal(proposal);
+        try {
+          future.get(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          LOG.warn("Proposal interrupted, waiting unconditionally");
+          future.get();
+        } catch (TimeoutException e) {
+          LOG.warn("Proposal longer then 1 second, waiting unconditionally");
+          future.get();
+        }
         sw.stop();
         metrics.addProposal(sw.elapsedTime(TimeUnit.MILLISECONDS));
+        iteration++;
       }
       LOG.info("Done client " + name);
     } catch (Exception e) {
-      LOG.error(e);
+      LOG.error("Client " + name + " failed", e);
       throw Throwables.propagate(e);
     } finally {
       generator.unregister(this);

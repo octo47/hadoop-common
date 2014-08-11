@@ -116,7 +116,8 @@ public class LoadProposal
   @Override
   public String toString() {
     return "LoadProposal{" +
-            "clientId=" + clientId +
+            "proposerId=" + getProposerNodeId() +
+            ", clientId=" + clientId +
             ", value=" + value +
             ", iteration=" + iteration +
             ", creationTime=" + creationTime +

@@ -28,26 +28,8 @@ import org.apache.hadoop.metrics2.lib.MutableRate;
 @Metrics(context = "load")
 public class LoadToolMetrics {
 
-  final MetricsRegistry registry = new MetricsRegistry("LoadTool");
-
-  static final int[] QUANTILE_INTERVALS = new int[] {
-          60, // 1min
-          5*60 // 5min
-  };
-
   @Metric(value = "proposals")
   protected MutableRate proposals;
-  protected MutableQuantiles[] proposalsQuantiles;
-
-  LoadToolMetrics() {
-    proposalsQuantiles = new MutableQuantiles[QUANTILE_INTERVALS.length];
-    for (int i = 0; i < proposalsQuantiles.length; i++) {
-      int interval = QUANTILE_INTERVALS[i];
-      proposalsQuantiles[i] = registry.newQuantiles(
-              "ProposalLatency" + interval + "s",
-              "Proposal latency for interval " + interval + "s",
-              "ops", "millis", interval);
-    }  }
 
   public static LoadToolMetrics create(LoadTool tool, long threadId) {
     LoadToolMetrics m = new LoadToolMetrics();
@@ -57,8 +39,5 @@ public class LoadToolMetrics {
 
   public void addProposal(long ms) {
     proposals.add(ms);
-    for (MutableQuantiles mutableQuantiles : proposalsQuantiles) {
-      mutableQuantiles.add(ms);
-    }
   }
 }

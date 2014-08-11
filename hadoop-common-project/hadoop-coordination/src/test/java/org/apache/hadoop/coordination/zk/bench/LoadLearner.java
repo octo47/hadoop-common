@@ -166,13 +166,18 @@ class LoadLearner {
     final Long clientId = proposal.getClientId();
     Random random = state.get(clientId);
     if (random == null) {
-      // we adding states only on register message, we need GSN of registration
-      // to initialize random properly.
       return clientId;
     }
     SettableFuture<Long> remove = pending.remove(proposal);
-    if (remove != null)
+    if (remove != null) {
       remove.set(engine.getGlobalSequenceNumber());
+      if (LOG.isDebugEnabled())
+        LOG.info("Complete Proposal " + proposal);
+    } else {
+      if (proposal.getProposerNodeId().equals(this.getLocalNodeId())) {
+        throw new IllegalStateException("Pending map contains no proposals for " + proposal);
+      }
+    }
     final Long value = proposal.getValue();
     if (!(random.nextLong() == value)) {
       throw new IllegalStateException("Failed at " + clientId +
