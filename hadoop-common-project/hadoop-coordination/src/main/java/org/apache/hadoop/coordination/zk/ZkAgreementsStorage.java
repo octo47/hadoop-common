@@ -23,8 +23,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-import java.util.SortedSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -39,7 +37,6 @@ import java.util.regex.Pattern;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -55,8 +52,9 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.ACL;
 
-import static com.google.common.base.Predicates.*;
-import static com.google.common.collect.Iterables.*;
+import static com.google.common.base.Predicates.and;
+import static com.google.common.base.Predicates.in;
+import static com.google.common.base.Predicates.not;
 
 /**
  * @author Andrey Stepachev
@@ -81,7 +79,7 @@ public class ZkAgreementsStorage {
   private int zkBucketDigits;
   private int zkBucketAgreements;
   private int zkMaxBuckets;
-  private int cleanupInterval = 1; // seconds
+  private int cleanupInterval = 30; // seconds
 
   private AtomicLong currentBucket = new AtomicLong(-1);
   private Lock resolverLock = new ReentrantLock(false);
@@ -414,28 +412,24 @@ public class ZkAgreementsStorage {
 
 
   private void gcBuckets() throws InterruptedException, IOException, KeeperException {
-    outer:
-    do {
-      List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
-      HashSet<String> locks = Sets.newHashSet();
-      for (String lock : filter(znodes, BUCKET_LOCK_ZNODE)) {
-        locks.add(lock.replace(".lock", "")); // will remove locked buckets from queue
-      }
-      List<String> buckets = Lists.newArrayList(
-              filter(znodes,
-                      and(BUCKET_ZNODE, not(in(locks)))));
-      Collections.sort(buckets);
-      int current = buckets.size();
-      if (current <= zkMaxBuckets)
-        break;
-      // assume that after sorting locks will follow bucket znodes
-      List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
-      LOG.info("Buckets remove candidates" + toRemove);
-      for (String s : toRemove) {
-        if (deleteBucket(s))
-          break outer;
-      }
-    } while (true);
+    List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
+    HashSet<String> locks = Sets.newHashSet();
+    for (String lock : Iterables.filter(znodes, BUCKET_LOCK_ZNODE)) {
+      locks.add(lock.replace(".lock", "")); // will remove locked buckets from queue
+    }
+    List<String> buckets = Lists.newArrayList(
+            Iterables.filter(znodes,
+                    and(BUCKET_ZNODE, not(in(locks)))));
+    Collections.sort(buckets);
+    int current = buckets.size();
+    if (current <= zkMaxBuckets)
+      return;
+    // assume that after sorting locks will follow bucket znodes
+    List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
+    for (String s : toRemove) {
+      if (deleteBucket(s))
+        return;
+    }
   }
 
   private boolean deleteBucket(String s) throws IOException, KeeperException, InterruptedException {
@@ -445,7 +439,7 @@ public class ZkAgreementsStorage {
     zooKeeper.create(bucketDeletedPath,
             EMPTY_BYTES, defaultAcl, CreateMode.PERSISTENT, true);
     ZNode exists = zooKeeper.exists(bucketLockPath);
-    if (exists.isExists() && exists.getStat().getEphemeralOwner() != zooKeeper.getSessionId() ) {
+    if (exists.isExists() && exists.getStat().getEphemeralOwner() != zooKeeper.getSessionId()) {
       return false;
     }
     try {
