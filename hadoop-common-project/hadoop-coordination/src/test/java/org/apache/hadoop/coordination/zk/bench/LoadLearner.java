@@ -171,8 +171,8 @@ class LoadLearner {
     SettableFuture<Long> remove = pending.remove(proposal);
     if (remove != null) {
       remove.set(engine.getGlobalSequenceNumber());
-      if (LOG.isDebugEnabled())
-        LOG.info("Complete Proposal " + proposal);
+      if (LOG.isTraceEnabled())
+        LOG.trace("Complete Proposal " + proposal);
     } else {
       if (proposal.getProposerNodeId().equals(this.getLocalNodeId())) {
         throw new IllegalStateException("Pending map contains no proposals for " + proposal);
