@@ -132,6 +132,15 @@ Release 2.6.0 - UNRELEASED
     HDFS-6837. Code cleanup for Balancer and Dispatcher. (szetszwo via
     jing9)
 
+    HDFS-6838. Code cleanup for unnecessary INode replacement.
+    (Jing Zhao via wheat9)
+
+    HDFS-6836. HDFS INFO logging is verbose & uses file appenders. (Xiaoyu
+    Yao via Arpit Agarwal)
+
+    HDFS-6567. Normalize the order of public final in HdfsFileStatus.
+    (Tassapol Athiapinya via wheat9)
+
   OPTIMIZATIONS
 
     HDFS-6690. Deduplicate xattr names in memory. (wang)
@@ -229,6 +238,12 @@ Release 2.6.0 - UNRELEASED
 
     HDFS-6791. A block could remain under replicated if all of its replicas are on
     decommissioned nodes. (Ming Ma via jing9)
+
+    HDFS-6582. Missing null check in RpcProgramNfs3#read(XDR, SecurityHandler)
+    (Abhiraj Butala via brandonli)
+
+    HDFS-6830. BlockInfo.addStorage fails when DN changes the storage for a
+    block replica (Arpit Agarwal)
 
 Release 2.5.0 - UNRELEASED
 
