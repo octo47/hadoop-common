@@ -20,14 +20,28 @@ package org.apache.hadoop.coordination;
 import java.io.Serializable;
 
 /**
- * Interface for proposals submitted to
- * {@link org.apache.hadoop.coordination.CoordinationEngine}.
+ * Interface for proposals submitted to the {@link CoordinationEngine}.
  * <p/>
- * A Proposal must implement {@link Object#equals(Object)},
- * {@link Object#hashCode()}, which are used by CoordinationEngine
- * to recognize proposals. <br>
- * Serialization is specified using readObject() and writeObject().
- * If custom serialization is not provided Java defaults will be used.
+ * Serialization is specified using readObject() and writeObject(). If custom
+ * serialization is not provided Java defaults will be used.
  */
 public interface Proposal extends Serializable {
+
+  /**
+   * @return the identity of the proposal. A unique identity for each proposal
+   *         is necessary to distinguish between two independent proposals with
+   *         the same value made by the same proposer.
+   */
+  String getProposalIdentity();
+
+  /**
+   * @return the identity of the {@link CoordinationEngine} instance making the
+   *         proposal.
+   */
+  String getCeIdentity();
+
+  /**
+   * @return the value being proposed, serialized as a byte array.
+   */
+  byte[] getValue();
 }

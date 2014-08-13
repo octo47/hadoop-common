@@ -24,17 +24,21 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.coordination.ConsensusProposal;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.service.Service;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import static org.apache.hadoop.coordination.zk.ZKCoordinationEngine.INVALID_GSN;
+import static org.apache.hadoop.service.Service.STATE.STARTED;
+import static org.apache.hadoop.service.Service.STATE.STOPPED;
+import static org.hamcrest.core.Is.is;
+import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -53,6 +57,11 @@ public class TestZKCoordinationEngine {
   public void beforeTest() throws Exception {
     conf = new Configuration();
     conf.set(ZKConfigKeys.CE_ZK_NODE_ID_KEY, proposerNodeId);
+
+    zkCluster = new MiniZooKeeperCluster();
+    zkCluster.startup(
+        new File(System.getProperty("test.build.dir", "target/test-dir"),
+            "testSimpleProposals"), 1);
   }
 
   @After
@@ -63,33 +72,42 @@ public class TestZKCoordinationEngine {
     }
   }
 
+  private ZKCoordinationEngine<SampleLearner> getStartedZkCoordinationEngine(
+      Configuration conf) {
+    ZKCoordinationEngine<SampleLearner> cEngine =
+        new ZKCoordinationEngine<SampleLearner>("ce");
+    cEngine.init(conf);
+    cEngine.start();
+
+    assertThat(cEngine.getServiceState(), is(equalTo(STARTED)));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+
+    return cEngine;
+  }
+
   /**
    * Submits single proposal and verifies that agreement was reached.
    */
   @Test
-  public void testSimpleProposals() throws IOException, KeeperException,
-          InterruptedException {
-
-    zkCluster = new MiniZooKeeperCluster();
-    zkCluster.startup(
-            new File(System.getProperty("test.build.dir", "target/test-dir"),
-                    "testSimpleProposals"), 1);
+  public void testSimpleProposals()
+      throws IOException, KeeperException, InterruptedException {
 
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
     conf.setInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY, 6000);
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
-    ZKCoordinationEngine cEngine = new ZKCoordinationEngine("ce");
-    cEngine.init(conf);
-    SampleLearner myLearner = new SampleLearner();
-    cEngine.registerHandler(new SampleHandler(myLearner));
-    cEngine.start();
-    Assert.assertEquals(Service.STATE.STARTED, cEngine.getServiceState());
+
+    ZKCoordinationEngine<SampleLearner> cEngine
+        = getStartedZkCoordinationEngine(conf);
+
+    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
+    assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
 
     final int targetGSN = 19; // gsn start with 0
     for (int i = 0; i < targetGSN + 1; i++) {
-      SampleProposal scp = new SampleProposal(proposerNodeId);
-      scp.setUser("user" + i);
-      cEngine.submitProposal(scp, true);
+      byte[] value = cEngine.serialize(new SampleProposal());
+      ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
+      cEngine.submitProposal(cp, true);
     }
 
     while (cEngine.getGlobalSequenceNumber() < targetGSN) {
@@ -98,7 +116,7 @@ public class TestZKCoordinationEngine {
     }
 
     assertEquals("Coordination Engine GSN hasn't been updated properly",
-            targetGSN, cEngine.getGlobalSequenceNumber());
+        targetGSN, cEngine.getGlobalSequenceNumber());
 
     // check state in ZK
     ZooKeeper zk = new ZooKeeper(
@@ -112,8 +130,62 @@ public class TestZKCoordinationEngine {
     checkAgreemetsCountStoredInZk(cEngine, zk, targetGSN + 1);
 
     cEngine.stop();
+
+    assertThat(cEngine.getServiceState(), is(equalTo(STOPPED)));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
   }
 
+  @Test
+  public void testSimpleProposalsWithNoDeliveryThenStartDelivery()
+      throws IOException, KeeperException, InterruptedException {
+
+    conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
+    conf.setInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY, 6000);
+    conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
+
+    ZKCoordinationEngine<SampleLearner> cEngine
+        = getStartedZkCoordinationEngine(conf);
+
+    final long targetGSN = 19L; // gsn start with 0
+    for (int i = 0; i < targetGSN + 1; i++) {
+      byte[] value = cEngine.serialize(new SampleProposal());
+      ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
+      cEngine.submitProposal(cp, true);
+    }
+
+    assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
+
+    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
+
+    while (cEngine.getGlobalSequenceNumber() < targetGSN) {
+      LOG.info("Waiting for coordination engine to learn agreement");
+      Thread.sleep(100);
+    }
+
+    assertEquals("Coordination Engine GSN hasn't been updated properly",
+        targetGSN, cEngine.getGlobalSequenceNumber());
+
+    // check state in ZK
+    ZooKeeper zk = new ZooKeeper(
+        zkCluster.getConnectString(),
+        cEngine.getZooKeeperSessionTimeout(), cEngine);
+
+    String nodeGlobalSeqNumZNodePath = cEngine.getZkGsnZNode();
+
+    awaitLearner(cEngine, zk, nodeGlobalSeqNumZNodePath);
+
+    checkAgreemetsCountStoredInZk(cEngine, zk, targetGSN + 1L);
+
+    cEngine.stopAgreements();
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+    assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(targetGSN)));
+
+    cEngine.stop();
+
+    assertThat(cEngine.getServiceState(), is(equalTo(STOPPED)));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+  }
 
   /**
    * Runs number of threads submitting proposals, validates they get processed
@@ -123,21 +195,16 @@ public class TestZKCoordinationEngine {
   public void testMultipleWriters() throws IOException, KeeperException,
           InterruptedException {
 
-    zkCluster = new MiniZooKeeperCluster();
-    zkCluster.startup(
-            new File(System.getProperty("test.build.dir", "target/test-dir"),
-                    "testMultipleWriters"), 1);
-
-
     conf.setInt(ZKConfigKeys.CE_ZK_BATCH_SIZE_KEY, 5);
     conf.setBoolean(ZKConfigKeys.CE_ZK_BATCH_COMMIT_KEY, true);
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
-    ZKCoordinationEngine cEngine = new ZKCoordinationEngine("ce");
-    cEngine.init(conf);
-    SampleLearner myLearner = new SampleLearner();
-    cEngine.registerHandler(new SampleHandler(myLearner));
-    cEngine.start();
+
+    ZKCoordinationEngine<SampleLearner> cEngine
+        = getStartedZkCoordinationEngine(conf);
+
+    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
 
     Thread.sleep(200);
 
@@ -151,14 +218,18 @@ public class TestZKCoordinationEngine {
     }
     long startingAgreements = cEngine.getGlobalSequenceNumber();
     while (true) {
-      boolean doneInitiazling = true;
+      boolean doneInitializing = true;
       for (AgreementsThread client : clients) {
-        doneInitiazling = doneInitiazling && client.initialized();
+        doneInitializing = doneInitializing && client.initialized();
       }
-      if (doneInitiazling)
+      if (doneInitializing)
         break;
     }
-    AgreementsThread.launch();
+
+    for (AgreementsThread client: clients) {
+      client.finish();
+    }
+
     for (AgreementsThread client : clients) {
       client.join();
     }
@@ -189,23 +260,17 @@ public class TestZKCoordinationEngine {
   /**
    * Helper thread submitting proposals to Coordination Engine.
    */
-  private static class AgreementsThread extends Thread {
+  private class AgreementsThread extends Thread {
     private String proposerNodeId = "node1";
     private final int operations;
-    private final String user;
     private boolean initialized;
-    private static volatile boolean launched;
-    private static ZKCoordinationEngine ce;
+    private volatile boolean finished;
+    private ZKCoordinationEngine ce;
 
     public AgreementsThread(ZKCoordinationEngine cEngine, int operations) {
       this.operations = operations;
       this.initialized = false;
-      launched = false;
-      try {
-        user = UserGroupInformation.getCurrentUser().getUserName();
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      finished = false;
       ce = cEngine;
     }
 
@@ -216,13 +281,12 @@ public class TestZKCoordinationEngine {
     @Override
     public void run() {
       initialized = true;
-      while (!launched) ;
+      while (!finished) ;
       for (int i = 0; i < operations; i++) {
         try {
-          SampleProposal scp =
-                  new SampleProposal(proposerNodeId);
-          scp.setUser(user);
-          ce.submitProposal(scp, true);
+          byte[] value = ce.serialize(new SampleProposal());
+          ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
+          ce.submitProposal(cp, true);
         } catch (IOException e) {
           fail(String.valueOf(e));
         }
@@ -230,12 +294,12 @@ public class TestZKCoordinationEngine {
       LOG.info("Done emitting proposals thread=" + Thread.currentThread().getId());
     }
 
-    public static void launch() {
-      launched = true;
+    public void finish() {
+      finished = true;
     }
   }
 
-  private void checkAgreemetsCountStoredInZk(ZKCoordinationEngine cEngine, ZooKeeper zk, int expected)
+  private void checkAgreemetsCountStoredInZk(ZKCoordinationEngine cEngine, ZooKeeper zk, long expected)
           throws KeeperException, InterruptedException {
     List<String> bucketZNode = zk.getChildren(cEngine.getZkAgreementsPath(), null);
     int numAgreementZnodes = 0;
@@ -249,7 +313,8 @@ public class TestZKCoordinationEngine {
             expected <= numAgreementZnodes);
   }
 
-  private void awaitLearner(ZKCoordinationEngine cEngine, ZooKeeper zk, String nodeGlobalSeqNumZNodePath) throws KeeperException, InterruptedException, com.google.protobuf.InvalidProtocolBufferException {
+  private void awaitLearner(ZKCoordinationEngine cEngine, ZooKeeper zk, String nodeGlobalSeqNumZNodePath)
+      throws KeeperException, InterruptedException, com.google.protobuf.InvalidProtocolBufferException {
     ZkCoordinationProtocol.ZkGsnState state;
     long cEngineGlobalSeqNum;
     do {
@@ -258,5 +323,4 @@ public class TestZKCoordinationEngine {
       cEngineGlobalSeqNum = cEngine.getGlobalSequenceNumber();
     } while (state.getGsn() != cEngineGlobalSeqNum);
   }
-
 }

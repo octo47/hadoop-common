@@ -17,20 +17,20 @@
  */
 package org.apache.hadoop.coordination;
 
-import java.io.IOException;
-
 /**
- * The exception is thrown when CoordinationEngine lacks the quorum.
+ * The exception is thrown when CoordinationEngine lacks the quorum necessary to
+ * make an agreement.
  */
-public class NoQuorumException extends IOException {
-  private static final long serialVersionUID = -3365375166994747839L;
+public class NoQuorumException extends ProposalNotAcceptedException {
 
+  private static final long serialVersionUID = -3365375166994747839L;
 
   public NoQuorumException(final String message) {
     super(message);
   }
 
-  public NoQuorumException(String message, final Throwable t) {
+  public NoQuorumException(final String message,
+                           final Throwable t) {
     super(message, t);
   }
 }

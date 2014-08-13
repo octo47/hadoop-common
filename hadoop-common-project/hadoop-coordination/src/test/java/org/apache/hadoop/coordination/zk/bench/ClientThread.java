@@ -69,8 +69,7 @@ public class ClientThread implements Runnable {
               && !done.get()
               && iteration < maxIterations
               && (millisToRun < 0 || runningTime.elapsedMillis() < millisToRun)) {
-        final LoadProposal proposal = new LoadProposal(
-                generator.getLocalNodeId(), id, rnd.nextLong(), iteration);
+        final LoadProposal proposal = new LoadProposal(id, rnd.nextLong(), iteration);
         if (LOG.isTraceEnabled())
           LOG.trace("Proposing " + proposal + " from " + name);
         Stopwatch sw = new Stopwatch();

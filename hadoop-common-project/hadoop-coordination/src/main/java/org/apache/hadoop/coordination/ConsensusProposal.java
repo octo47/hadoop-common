@@ -17,44 +17,82 @@
  */
 package org.apache.hadoop.coordination;
 
-import java.io.Serializable;
+import javax.annotation.concurrent.Immutable;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.util.Arrays;
+import java.util.UUID;
 
 /**
- * ConsensusProposal is the base class for {@link Proposal}s.
- * Once agreed upon by {@link org.apache.hadoop.coordination.CoordinationEngine}
- * it also acts as an agreement.
- * <p/>
+ * ConsensusProposal is an implementation of a value object accepted by the
+ * {@link CoordinationEngine}. It is immutable once created.
  */
-public abstract class ConsensusProposal<L, R>
-        implements Proposal, Agreement<L, R> {
-  private static final long serialVersionUID = 1L;
+@Immutable
+public class ConsensusProposal implements Proposal {
+
+  private static final long serialVersionUID = -7792555096613056598L;
+
+  /** The unique identity of the proposal */
+  private String proposalIdentity;
+
+  /** The identity of CE instance making the proposal */
+  private String ceIdentity;
+
+  /** The serialized value being proposed */
+  private byte[] value;
 
   /**
-   * The identity of the node that is making the proposal
+   * @param ceIdentity  The identity of the coordinationEngine instance making the
+   *                    proposal.
+   * @param value       The value to be agreed.
    */
-  protected final Serializable proposerNodeId;
+  public ConsensusProposal(final String ceIdentity,
+                           final byte[] value) {
+    this.proposalIdentity = UUID.randomUUID().toString();
+    this.ceIdentity = ceIdentity;
+    this.value = value;
+  }
 
-  public ConsensusProposal(final Serializable proposerNodeId) {
-    this.proposerNodeId = proposerNodeId;
+  /**
+   * @return the unique identity of the proposal.
+   */
+  @Override // Proposal
+  public String getProposalIdentity() {
+    return proposalIdentity;
   }
 
   /**
    * @return the identity of the node making the proposal.
    */
-  public Serializable getProposerNodeId() {
-    return proposerNodeId;
+  @Override // Proposal
+  public String getCeIdentity() {
+    return ceIdentity;
+  }
+
+  /**
+   * @return the value being proposed.
+   */
+  @Override // Proposal
+  public byte[] getValue() {
+    return value;
   }
 
   /**
    * Implementation of equals for comparison of ConsensusProposals.
    */
-  @Override
+  @Override // Object
   public boolean equals(Object o) {
     if (this == o) return true;
-    if (!(o instanceof ConsensusProposal<?, ?>)) return false;
+    if (!(o instanceof ConsensusProposal)) return false;
 
-    ConsensusProposal<?, ?> that = (ConsensusProposal<?, ?>) o;
-    if (!proposerNodeId.equals(that.proposerNodeId)) return false;
+    ConsensusProposal proposal = (ConsensusProposal) o;
+
+    if (!proposalIdentity.equals(proposal.proposalIdentity)) return false;
+    if (!ceIdentity.equals(proposal.ceIdentity)) return false;
+    if (!Arrays.equals(value, proposal.value)) return false;
 
     return true;
   }
@@ -62,19 +100,56 @@ public abstract class ConsensusProposal<L, R>
   /**
    * @return a unique hash code for this proposal
    */
-  @Override
+  @Override // Object
   public int hashCode() {
-    return proposerNodeId.hashCode();
+    int result = proposalIdentity.hashCode();
+    result = 31 * result + ceIdentity.hashCode();
+    result = 31 * result + Arrays.hashCode(value);
+    return result;
   }
 
   /**
-   * @return a String representation of this proposal
+   * @return a String representation of this proposal.
    */
-  @Override
+  @Override // Object
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append(getClass().getSimpleName() + ": proposerId: ");
-    sb.append(proposerNodeId);
+    sb.append("ConsensusProposal. proposalIdentity: ");
+    sb.append(proposalIdentity);
+    sb.append(", ceIdentity");
+    sb.append(ceIdentity);
+    sb.append(", size of value: ");
+    sb.append(value.length);
+    sb.append(" bytes");
     return sb.toString();
+  }
+
+  /**
+   * The writeObject method is responsible for writing the state of the object
+   * so the corresponding readObject method can restore it.
+   */
+  private void writeObject(final ObjectOutputStream oos)
+      throws IOException {
+    DataOutputStream out = new DataOutputStream(oos);
+    out.writeUTF(proposalIdentity);
+    out.writeUTF(ceIdentity);
+    out.writeInt(value.length);
+    out.write(value);
+    out.close();
+  }
+
+  /**
+   * The readObject method is responsible for reading from the stream and
+   * restoring the classes fields.
+   */
+  private void readObject(final ObjectInputStream ois )
+      throws IOException, ClassNotFoundException {
+    DataInputStream in = new DataInputStream(ois);
+    proposalIdentity = in.readUTF();
+    ceIdentity = in.readUTF();
+    int valueLen = in.readInt();
+    value = new byte[valueLen];
+    in.read(value);
+    in.close();
   }
 }

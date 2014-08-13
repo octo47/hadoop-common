@@ -17,23 +17,26 @@
  */
 package org.apache.hadoop.coordination.zk;
 
+import javax.annotation.concurrent.Immutable;
 import java.io.IOException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.coordination.AgreementHandler;
+import org.apache.hadoop.coordination.Proposal;
 
 /**
- * Handles execution of {@link SampleProposal} agreements.
+ * Handles agreed {@link SampleProposal}s.
  */
+@Immutable
 public class SampleHandler implements AgreementHandler<SampleLearner> {
   private static final Log LOG = LogFactory.getLog(SampleHandler.class);
 
-  private SampleLearner learner;
+  private final SampleLearner learner;
 
-  public SampleHandler(SampleLearner learner) {
-    setLearner(learner);
+  public SampleHandler(final SampleLearner learner) {
+    this.learner = learner;
   }
 
   @Override
@@ -42,19 +45,13 @@ public class SampleHandler implements AgreementHandler<SampleLearner> {
   }
 
   @Override
-  public void setLearner(SampleLearner learner) {
-    this.learner = learner;
-  }
-
-  @Override
-  public void executeAgreement(Agreement<?, ?> agreement) {
-    SampleProposal agreed = (SampleProposal) agreement;
-    try {
-      int s = agreed.execute(getLearner());
-      if (LOG.isTraceEnabled())
-        LOG.trace(learner.getClass().getSimpleName() + " state updated to " + s);
-    } catch (IOException e) {
-      LOG.error("Failed to apply agreement: " + agreement, e);
+  public void process(String proposalIdentity,
+                      String ceIdentity,
+                      Agreement<SampleLearner, Object> agreement)
+          throws Exception {
+    Object o = agreement.execute(proposalIdentity, ceIdentity, learner);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(learner.getClass().getSimpleName() + " state updated to " + o);
     }
   }
 }

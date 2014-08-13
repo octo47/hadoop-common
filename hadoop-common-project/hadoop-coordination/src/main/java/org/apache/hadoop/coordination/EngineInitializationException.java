@@ -18,15 +18,18 @@
 package org.apache.hadoop.coordination;
 
 /**
- * Exception thrown when CE unable to initialize itself.
+ * Exception thrown when the CE implementation cannot be initialized.
  */
-public class QuorumInitializationException extends NoQuorumException {
-  public QuorumInitializationException(String message) {
+public class EngineInitializationException extends NoQuorumException {
+
+  private static final long serialVersionUID = 201596774934060862L;
+
+  public EngineInitializationException(final String message) {
     super(message);
   }
 
-  public QuorumInitializationException(String message, Throwable t) {
+  public EngineInitializationException(final String message,
+                                       final Throwable t) {
     super(message, t);
   }
-
 }

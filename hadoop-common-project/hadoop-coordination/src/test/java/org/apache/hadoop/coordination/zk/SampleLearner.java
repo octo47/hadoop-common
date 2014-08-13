@@ -22,23 +22,20 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.util.Time;
 
 /**
- * A primitive learner.
- * Its state is the counter, which counts all agreements that it receives.
+ * A primitive learner. Its state is the counter, which counts all agreements
+ * that it receives.
  */
 public class SampleLearner {
   private static final Log LOG = LogFactory.getLog(SampleLearner.class);
 
   private volatile int agreementsCount = 0;
 
-  public void updateState(long time) {
+  public int updateState(long time) {
     agreementsCount++;
     if (LOG.isTraceEnabled())
       LOG.trace("Updated internalCount to: " + agreementsCount +
               " :: originally proposed @ " + time +
               " diff=" + (Time.now() - time));
-  }
-
-  public int getState() {
     return agreementsCount;
   }
 }

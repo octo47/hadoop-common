@@ -18,10 +18,12 @@
 
 package org.apache.hadoop.coordination.zk.bench;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -31,8 +33,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.coordination.CoordinationEngine;
-import org.apache.hadoop.coordination.NoQuorumException;
+import org.apache.hadoop.coordination.ConsensusProposal;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
 
@@ -63,7 +64,7 @@ class LoadLearner {
     }
   }
 
-  private int requestId = 0;
+  private AtomicInteger requestId = new AtomicInteger(0);
   private Lock lock = new ReentrantLock();
   private Condition cond = lock.newCondition();
   private final Map<String, State> threads = Maps.newConcurrentMap();
@@ -76,8 +77,8 @@ class LoadLearner {
     this.engine = engine;
   }
 
-  static String threadId(Serializable nodeId, int requestId) {
-    return nodeId.toString() + ":" + requestId;
+  static String threadId(String nodeId, int requestId) {
+    return nodeId + ":" + requestId;
   }
 
   /**
@@ -87,18 +88,17 @@ class LoadLearner {
    * @return future id
    */
   public ListenableFuture<Long> register(ClientThread ct)
-          throws ProposalNotAcceptedException, NoQuorumException {
+          throws IOException {
+    int req = requestId.incrementAndGet();
+    String threadId = threadId(getLocalIdentity(), req);
+    State state = new State(threadId, ct);
     lock.lock();
     try {
-      int req = requestId++;
-      String threadId = threadId(getLocalNodeId(), req);
-      State state = new State(threadId, ct);
       ct.setName(threadId);
       threads.put(threadId, state);
-      CoordinationEngine.ProposalReturnCode rc = engine.submitProposal(
-              new RegisterProposal(getLocalNodeId(), req), true);
-      if (rc != CoordinationEngine.ProposalReturnCode.OK)
-        throw new ProposalNotAcceptedException("can't register client");
+      byte[] value = engine.serialize(new RegisterProposal(req));
+      engine.submitProposal(new ConsensusProposal(
+              engine.getIdentity(), value), true);
       return state.register;
     } finally {
       lock.unlock();
@@ -116,17 +116,16 @@ class LoadLearner {
     }
   }
 
-
-  public Serializable getLocalNodeId() {
-    return engine.getLocalNodeId();
+  public String getLocalIdentity() {
+    return engine.getIdentity();
   }
 
   /**
    * Whence registration arrived, we either register new state for remote
    * generator or start our own. In both case GSN should be the same, so
-   * it is safe to assume that Random will be initialized with the same GSN.
+   * it is safe to assume that Random will be initialized using the same GSN.
    */
-  public void handleRegister(RegisterProposal registerProposal) {
+  public void handleRegister(String ceIdentity, RegisterProposal registerProposal) {
     Long id = engine.getGlobalSequenceNumber();
     lock.lock();
     try {
@@ -134,8 +133,7 @@ class LoadLearner {
       // lookup for thread, if found, it is our registration
       // and we should assign id to it
       final State lt = threads.get(
-              threadId(registerProposal.getProposerNodeId(),
-                      registerProposal.getRequestId()));
+              threadId(ceIdentity, registerProposal.getRequestId()));
       if (lt != null) {
         lt.assignId(id);
         id2Thread.put(id, lt);
@@ -146,15 +144,16 @@ class LoadLearner {
   }
 
   public SettableFuture<Long> makeProposal(LoadProposal proposal)
-          throws ProposalNotAcceptedException, NoQuorumException {
+          throws IOException {
 
     SettableFuture<Long> result = SettableFuture.create();
     pending.put(proposal, result);
-    CoordinationEngine.ProposalReturnCode code = engine.submitProposal(proposal, false);
-    if (code != CoordinationEngine.ProposalReturnCode.OK) {
+    byte[] value = engine.serialize(proposal);
+    try {
+      engine.submitProposal(new ConsensusProposal(getLocalIdentity(), value), false);
+    } catch (ProposalNotAcceptedException pnae) {
       pending.remove(proposal);
-      result.setException(
-              new ProposalNotAcceptedException("Unable to propose " + proposal + ": error " + code));
+      result.setException(pnae);
     }
     return result;
   }
@@ -162,7 +161,7 @@ class LoadLearner {
   /**
    * Advance state of thread, compare with expected random sequence.
    */
-  public Long handleProposal(LoadProposal proposal) {
+  public Long handleProposal(String ceIdentity, LoadProposal proposal) {
     final Long clientId = proposal.getClientId();
     Random random = state.get(clientId);
     if (random == null) {
@@ -174,7 +173,7 @@ class LoadLearner {
       if (LOG.isTraceEnabled())
         LOG.trace("Complete Proposal " + proposal);
     } else {
-      if (proposal.getProposerNodeId().equals(this.getLocalNodeId())) {
+      if (ceIdentity.equals(this.getLocalIdentity())) {
         throw new IllegalStateException("Pending map contains no proposals for " + proposal);
       }
     }

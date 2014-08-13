@@ -17,100 +17,110 @@
  */
 package org.apache.hadoop.coordination.zk;
 
+import javax.annotation.concurrent.Immutable;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.io.Serializable;
-import java.security.PrivilegedAction;
 
-import org.apache.hadoop.coordination.ConsensusProposal;
-import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.util.Time;
 
 /**
- * A simple ConsensusProposal.
+ * A simple ConsensusProposal that is applied to the {@link SampleLearner} and,
+ * when applied, results in an {@link Integer} being returned from the learner.
  */
-class SampleProposal extends ConsensusProposal<SampleLearner, Integer> {
-  private static final long serialVersionUID = 1L;
+@Immutable
+class SampleProposal implements Agreement<SampleLearner, Integer> {
+
+  private static final long serialVersionUID = -6229936612835969269L;
 
   private long receiveTime;
   private String user;
 
-  public SampleProposal(final Serializable proposerNodeId) {
-    super(proposerNodeId);
+  public SampleProposal(final String user) {
     this.receiveTime = Time.now();
+    this.user = user;
+  }
+
+  public SampleProposal() {
+    this(null);
   }
 
   public long getReceiveTime() {
     return receiveTime;
   }
 
-  public void setUser(String user) throws IOException {
-    this.user = user;
-  }
-
   public String getUser() {
     return user;
+  }
+
+  @Override // Agreement
+  public Integer execute(final String proposeIdentity,
+                         final String ceIdentity,
+                         final SampleLearner learner)
+      throws IOException {
+    return learner.updateState(receiveTime);
   }
 
   @Override // Object
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof SampleProposal)) return false;
-    if (!super.equals(o)) return false;
 
-    SampleProposal that = (SampleProposal) o;
-    if (receiveTime != that.receiveTime) return false;
+    SampleProposal proposal = (SampleProposal) o;
+
+    if (receiveTime != proposal.receiveTime) return false;
+    if (user != null ? !user.equals(proposal.user) : proposal.user != null)
+      return false;
 
     return true;
   }
 
   @Override // Object
   public int hashCode() {
-    int result = super.hashCode();
-    result = 31 * result + (int) (receiveTime ^ (receiveTime >>> 32));
+    int result = (int) (receiveTime ^ (receiveTime >>> 32));
+    result = 31 * result + (user != null ? user.hashCode() : 0);
     return result;
   }
 
-  @Override // ConsensusProposal
-  public Integer execute(final SampleLearner learner) throws IOException {
-    UserGroupInformation proxyUser =
-            UserGroupInformation.createProxyUser(getUser(),
-                    UserGroupInformation.getCurrentUser());
-    return proxyUser.doAs(new PrivilegedAction<Integer>() {
-      @Override
-      public Integer run() {
-        learner.updateState(getReceiveTime());
-        return learner.getState();
-      }
-    });
-  }
-
-  /**
-   * Custom de-serialization.
-   */
-  private void readObject(ObjectInputStream in)
-          throws IOException, ClassNotFoundException {
-    receiveTime = in.readLong();
-    user = in.readUTF();
-  }
-
-  /**
-   * Custom serialization.
-   */
-  private void writeObject(ObjectOutputStream out) throws IOException {
-    out.writeLong(receiveTime);
-    out.writeUTF(user);
-  }
-
-  @Override // ConsensusProposal
+  @Override // Object
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append(super.toString());
-    sb.append(", receiveTime: ");
+    sb.append("SampleProposal. receiveTime: ");
     sb.append(receiveTime);
-    sb.append(", user: ");
-    sb.append(user);
+    if (user != null) {
+      sb.append(", user: ");
+      sb.append(user);
+    }
     return sb.toString();
+  }
+
+  /**
+   * The writeObject method is responsible for writing the state of the object
+   * for its particular class so that the corresponding readObject method can
+   * restore it.
+   */
+  private void writeObject(final ObjectOutputStream out)
+      throws IOException {
+    out.writeLong(receiveTime);
+    if (user != null) {
+      out.writeBoolean(true);
+      out.writeUTF(user);
+    } else {
+      out.writeBoolean(false);
+    }
+  }
+
+  /**
+   * The readObject method is responsible for reading from the stream and
+   * restoring the classes fields.
+   */
+  private void readObject(final ObjectInputStream in)
+      throws IOException, ClassNotFoundException {
+    receiveTime = in.readLong();
+    boolean hasUser = in.readBoolean();
+    if (hasUser) {
+      user = in.readUTF();
+    }
   }
 }

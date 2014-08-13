@@ -18,23 +18,19 @@
 package org.apache.hadoop.coordination;
 
 /**
- * Interface for handling execution of agreements
- * for a particular learner type L.
+ * Interface for handling execution of agreements for learner type L. Applying
+ * an agreed value to the learner may return any type of Object.
  */
 public interface AgreementHandler<L> {
 
   /**
-   * Get the learner.
+   * @return the learner that will be informed of {@link Agreement}s.
    */
   public L getLearner();
 
   /**
-   * Set the learner.
+   * Process the agreed value, delivering it to the Learner.
    */
-  public void setLearner(L learner);
-
-  /**
-   * Execute specified agreement.
-   */
-  public void executeAgreement(Agreement<?, ?> agreement);
+  void process(String proposalIdentity, String ceIdentity, Agreement<L, Object> value)
+          throws Exception;
 }

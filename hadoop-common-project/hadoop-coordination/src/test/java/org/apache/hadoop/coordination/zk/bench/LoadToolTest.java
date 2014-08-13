@@ -20,7 +20,6 @@ package org.apache.hadoop.coordination.zk.bench;
 import java.io.File;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.MiniZooKeeperCluster;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
@@ -53,7 +52,7 @@ public class LoadToolTest {
   }
 
   @Test
-  public void testLoadTool() throws ProposalNotAcceptedException, NoQuorumException, InterruptedException {
+  public void testLoadTool() throws ProposalNotAcceptedException, InterruptedException {
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
     conf.setInt(LoadTool.CE_BENCH_ITERATIONS_KEY, 15);
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 3);

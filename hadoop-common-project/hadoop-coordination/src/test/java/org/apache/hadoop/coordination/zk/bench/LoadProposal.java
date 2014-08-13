@@ -17,19 +17,21 @@
  */
 package org.apache.hadoop.coordination.zk.bench;
 
+import javax.annotation.concurrent.Immutable;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.ObjectStreamException;
-import java.io.Serializable;
 
-import org.apache.hadoop.coordination.ConsensusProposal;
+import org.apache.hadoop.coordination.Agreement;
 
 /**
- * Main workhorse of load test, this proposals issued by
- * load generator threads and accounted by Learner.
+ * The main part of the load test, this is a value object issued by the
+ * {@link LoadTool.LoadThread} and received by the {@link LoadTool.LoadGenerator}.
+ * When applied to the {@link LoadTool.LoadGenerator} it returns a {@link Long}.
  */
-public class LoadProposal
-        extends ConsensusProposal<LoadLearner, Long>
-        implements Serializable {
+@Immutable
+public class LoadProposal implements Agreement<LoadLearner, Long> {
 
   private static final long serialVersionUID = 1L;
 
@@ -54,15 +56,14 @@ public class LoadProposal
     return creationTime;
   }
 
-  public LoadProposal(Serializable nodeId, Long clientId, Long value, Long iteration) {
-    super(nodeId);
+  public LoadProposal(Long clientId, Long value, Long iteration) {
     this.value = value;
     this.clientId = clientId;
     this.iteration = iteration;
     this.creationTime = System.currentTimeMillis();
   }
 
-  private void writeObject(java.io.ObjectOutputStream out)
+  private void writeObject(ObjectOutputStream out)
           throws IOException {
     out.writeLong(value);
     out.writeLong(clientId);
@@ -70,7 +71,7 @@ public class LoadProposal
     out.writeLong(creationTime);
   }
 
-  private void readObject(java.io.ObjectInputStream in)
+  private void readObject(ObjectInputStream in)
           throws IOException, ClassNotFoundException {
     value = in.readLong();
     clientId = in.readLong();
@@ -83,41 +84,39 @@ public class LoadProposal
   }
 
   @Override
-  public Long execute(LoadLearner loadLearner) throws IOException {
-    return loadLearner.handleProposal(this);
+  public Long execute(String proposeIdentity, String ceIdentity, LoadLearner loadLearner)
+          throws IOException {
+    return loadLearner.handleProposal(ceIdentity, this);
   }
 
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
-    if (!super.equals(o)) return false;
 
     LoadProposal that = (LoadProposal) o;
 
-    if (creationTime != null ? !creationTime.equals(that.creationTime) : that.creationTime != null) return false;
-    if (clientId != null ? !clientId.equals(that.clientId) : that.clientId != null) return false;
-    if (iteration != null ? !iteration.equals(that.iteration) : that.iteration != null) return false;
-    if (value != null ? !value.equals(that.value) : that.value != null) return false;
+    if (!clientId.equals(that.clientId)) return false;
+    if (!creationTime.equals(that.creationTime)) return false;
+    if (!iteration.equals(that.iteration)) return false;
+    if (!value.equals(that.value)) return false;
 
     return true;
   }
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
-    result = 31 * result + (clientId != null ? clientId.hashCode() : 0);
-    result = 31 * result + (value != null ? value.hashCode() : 0);
-    result = 31 * result + (iteration != null ? iteration.hashCode() : 0);
-    result = 31 * result + (creationTime != null ? creationTime.hashCode() : 0);
+    int result = clientId.hashCode();
+    result = 31 * result + value.hashCode();
+    result = 31 * result + iteration.hashCode();
+    result = 31 * result + creationTime.hashCode();
     return result;
   }
 
   @Override
   public String toString() {
     return "LoadProposal{" +
-            "proposerId=" + getProposerNodeId() +
-            ", clientId=" + clientId +
+            "clientId=" + clientId +
             ", value=" + value +
             ", iteration=" + iteration +
             ", creationTime=" + creationTime +

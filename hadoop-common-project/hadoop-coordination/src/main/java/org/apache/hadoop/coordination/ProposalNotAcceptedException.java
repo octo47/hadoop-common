@@ -20,23 +20,22 @@ package org.apache.hadoop.coordination;
 import java.io.IOException;
 
 /**
- * Thrown by {@link org.apache.hadoop.coordination.CoordinationEngine)
- * when submitted proposal was not accepted for processing.
- * <p/>
- * Reasons for a proposal being not accepted are specific
- * for the CoordinationEngine implementation.
- * <p/>
- * A common reason is that a competing proposal, typically with the same GSN,
- * has already been submitted to the engine.
+ * Thrown by the {@link CoordinationEngine) when a proposal submitted to it was
+ * not accepted for processing.
+ *
+ * The reasons for a proposal being not accepted may be specific to the
+ * {@link CoordinationEngine} implementation.
  */
 public class ProposalNotAcceptedException extends IOException {
+
   private static final long serialVersionUID = -8981758542101961950L;
 
   public ProposalNotAcceptedException(final String message) {
     super(message);
   }
 
-  public ProposalNotAcceptedException(String message, final Throwable t) {
+  public ProposalNotAcceptedException(final String message,
+                                      final Throwable t) {
     super(message, t);
   }
 }
