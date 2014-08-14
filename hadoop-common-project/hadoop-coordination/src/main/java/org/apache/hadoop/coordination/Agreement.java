@@ -29,7 +29,7 @@ public interface Agreement<L, R> extends Serializable {
    * Execute the agreement on the learner of type {@link L}.
    *
    * @param learner      the learner the agreement will be applied to.
-   * @param proposeIdentity identity of the propose which delivered agreement
+   * @param proposalIdentity identity of the proposal which agreed on agreement
    * @param ceIdentity   identity of the CE engine created agreement
    * @return             the result of applying the agreement to the learner.
    *                     This may be {@link Void} if there is no result. This
@@ -38,6 +38,6 @@ public interface Agreement<L, R> extends Serializable {
    * @throws IOException if there was a problem applying the
    *                     agreement to the learner.
    */
-  abstract R execute(String proposeIdentity, String ceIdentity, final L learner)
+  abstract R execute(String proposalIdentity, String ceIdentity, final L learner)
           throws IOException;
 }

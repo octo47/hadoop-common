@@ -84,7 +84,7 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
   }
 
   @Override
-  public Long execute(String proposeIdentity, String ceIdentity, LoadLearner loadLearner)
+  public Long execute(String proposalIdentity, String ceIdentity, LoadLearner loadLearner)
           throws IOException {
     return loadLearner.handleProposal(ceIdentity, this);
   }

@@ -46,7 +46,7 @@ public class RegisterProposal implements Agreement<LoadLearner, Void> {
   }
 
   @Override
-  public Void execute(String proposeIdentity, String ceIdentity, LoadLearner learner)
+  public Void execute(String proposalIdentity, String ceIdentity, LoadLearner learner)
           throws IOException {
     learner.handleRegister(ceIdentity, this);
     return null;

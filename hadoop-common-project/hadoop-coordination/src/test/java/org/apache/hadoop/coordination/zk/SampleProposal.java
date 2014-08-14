@@ -55,7 +55,7 @@ class SampleProposal implements Agreement<SampleLearner, Integer> {
   }
 
   @Override // Agreement
-  public Integer execute(final String proposeIdentity,
+  public Integer execute(final String proposalIdentity,
                          final String ceIdentity,
                          final SampleLearner learner)
       throws IOException {
