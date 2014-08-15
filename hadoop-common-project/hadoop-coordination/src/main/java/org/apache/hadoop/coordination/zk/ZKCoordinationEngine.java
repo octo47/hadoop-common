@@ -25,6 +25,7 @@ import java.io.ObjectOutputStream;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Throwables;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
@@ -355,6 +356,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
       processImpl(watchedEvent);
     } catch (Exception e) {
       LOG.error("Failed to process event", e);
+      throw Throwables.propagate(e);
     }
   }
 
