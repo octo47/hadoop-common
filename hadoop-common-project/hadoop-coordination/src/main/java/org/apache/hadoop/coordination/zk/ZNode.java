@@ -23,7 +23,7 @@ import org.apache.zookeeper.data.Stat;
 
 /**
  * Class represent znode data with associated Stat object.
- * Sematic is the same as method getData provides, i.e.
+ * Semantics is the same as method getData provides, i.e.
  * data can be null
  */
 public abstract class ZNode {
