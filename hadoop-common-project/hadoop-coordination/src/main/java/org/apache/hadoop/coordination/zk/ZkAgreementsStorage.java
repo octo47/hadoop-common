@@ -57,7 +57,13 @@ import static com.google.common.base.Predicates.in;
 import static com.google.common.base.Predicates.not;
 
 /**
- * @author Andrey Stepachev
+ * Class encapsulate all operations with agreements, stored in zk.
+ * Agreements stored in buckets, extra buckets are removed by background
+ * thread.
+ * Bucket can be marked as deleted, that means, bucket is under deletion,
+ * so some of agreement can be deleted already and this bucket should not
+ * be used due of it's inconsistency.
+ * BucketCleaner thread uses locks for preventing concurrent node deletions.
  */
 public class ZkAgreementsStorage {
 
@@ -290,9 +296,9 @@ public class ZkAgreementsStorage {
     }
     // now we have knowledge of how many agreements are in bucket, that can be
     // obtained from znode CVersion.
-    // end is ensured to get minimum of available agreements or specified batch size
+    // _end_ is ensured to get minimum of available agreements or specified batch size
     int end = Math.min(bucketZNode.getStat().getCversion(), start + batchSize);
-    // if end is out of bucket, fix it on the end of bucket.
+    // if _end_ is out of bucket, fix it on the end of bucket.
     // agreements out of bucket were resubmitted to next bucket,
     // so we don't need to read them right now.
     if (end > zkBucketAgreements)
