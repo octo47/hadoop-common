@@ -329,7 +329,7 @@ public class ZkAgreementsStorage {
   }
 
   /**
-   * Watch for next agreement for current bucket/seq.
+   * Watches for next agreement for current bucket/seq.
    * Watcher should be registered with given ZkConnection.
    * TODO: make watching internal to ZkAgreementsStorage, doesn't depend preregistration.
    *
@@ -360,7 +360,7 @@ public class ZkAgreementsStorage {
 
 
   /**
-   * Ensure znodeName in bucket range
+   * Ensures znodeName in bucket range
    */
   @VisibleForTesting
   boolean isInBucket(String znodeName) {
@@ -420,7 +420,7 @@ public class ZkAgreementsStorage {
 
 
   /**
-   * Perform bucket cleanup.
+   * Performs bucket cleanup.
    * Marks bucket as deleted, tries to lock bucket before deletion.
    */
   private void gcBuckets() throws InterruptedException, IOException, KeeperException {
@@ -445,7 +445,7 @@ public class ZkAgreementsStorage {
   }
 
   /**
-   * Perform batched bucket deletion. Zk doesnt support recursive delete,
+   * Performs batched bucket deletion. Zk doesnt support recursive delete,
    * in this method batch of delete operation issued.
    */
   private boolean deleteBucket(String s) throws IOException, KeeperException, InterruptedException {
