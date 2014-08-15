@@ -18,7 +18,9 @@
 package org.apache.hadoop.coordination.zk;
 
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.zookeeper.data.Stat;
 
 /**
@@ -26,6 +28,8 @@ import org.apache.zookeeper.data.Stat;
  * Semantics is the same as method getData provides, i.e.
  * data can be null
  */
+@InterfaceAudience.Private
+@Immutable
 public abstract class ZNode {
 
   private final String path;
@@ -62,6 +66,8 @@ public abstract class ZNode {
    */
   public abstract boolean isExists();
 
+  @Immutable
+  @InterfaceAudience.Private
   public static class None extends ZNode {
 
     public None(String path) {
@@ -85,6 +91,8 @@ public abstract class ZNode {
     }
   }
 
+  @Immutable
+  @InterfaceAudience.Private
   public static class Data extends ZNode {
 
     private final Stat stat;
@@ -113,6 +121,8 @@ public abstract class ZNode {
     }
   }
 
+  @Immutable
+  @InterfaceAudience.Private
   public static class Exists extends ZNode {
 
     private final Stat stat;

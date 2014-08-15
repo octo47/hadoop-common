@@ -45,6 +45,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.coordination.StaleReplicaException;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.CreateMode;
@@ -65,6 +66,7 @@ import static com.google.common.base.Predicates.not;
  * be used due of it's inconsistency.
  * BucketCleaner thread uses locks for preventing concurrent node deletions.
  */
+@InterfaceAudience.Private
 public class ZkAgreementsStorage {
 
   public static final int DELETE_BATCH_SIZE = 1024;

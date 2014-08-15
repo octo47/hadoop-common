@@ -29,6 +29,7 @@ import com.google.common.base.Throwables;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.coordination.AgreementHandler;
@@ -65,6 +66,7 @@ import org.apache.zookeeper.ZooDefs;
  * Number) alongside bucket and sequence seen. This information is used on
  * recovery.
  */
+@InterfaceAudience.Private
 public class ZKCoordinationEngine<L> extends AbstractService
         implements CoordinationEngine<L>, Watcher {
 

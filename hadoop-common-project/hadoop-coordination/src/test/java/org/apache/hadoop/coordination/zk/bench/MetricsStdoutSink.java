@@ -24,9 +24,6 @@ import org.apache.hadoop.metrics2.MetricsRecord;
 import org.apache.hadoop.metrics2.MetricsSink;
 import org.apache.hadoop.metrics2.MetricsTag;
 
-/**
- * @author Andrey Stepachev
- */
 public class MetricsStdoutSink implements MetricsSink {
 
   @Override

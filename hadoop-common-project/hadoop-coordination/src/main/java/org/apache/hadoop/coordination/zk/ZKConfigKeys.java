@@ -17,10 +17,13 @@
  */
 package org.apache.hadoop.coordination.zk;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+
 /**
  * Contains constants needed for ZK-based implementation of
  * {@link org.apache.hadoop.coordination.CoordinationEngine}.
  */
+@InterfaceAudience.Private
 public class ZKConfigKeys {
 
   /**

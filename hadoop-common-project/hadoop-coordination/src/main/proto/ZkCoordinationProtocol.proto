@@ -26,12 +26,14 @@ option java_package = "org.apache.hadoop.coordination.zk.protobuf";
 option java_outer_classname = "ZkCoordinationProtocol";
 option java_generate_equals_and_hash = true;
 
+/** Used by ZkAgreementStorage to persist learning position */
 message ZkGsnState {
   required sint64 gsn = 1;
   required sint64 bucket = 2;
   required sint32 seq = 3;
 }
 
+/** Used by ZkAgreementStorage to persist bucket configuration */
 message ZkBucketsState {
   required sint64 maxBucket = 1;
   required sint32 bucketDigits = 2;

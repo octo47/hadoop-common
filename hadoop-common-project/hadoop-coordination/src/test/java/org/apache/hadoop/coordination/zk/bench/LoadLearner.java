@@ -37,9 +37,6 @@ import org.apache.hadoop.coordination.ConsensusProposal;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
 
-/**
- * @author Andrey Stepachev
- */
 class LoadLearner {
 
   private static final Log LOG = LogFactory.getLog(LoadLearner.class);
