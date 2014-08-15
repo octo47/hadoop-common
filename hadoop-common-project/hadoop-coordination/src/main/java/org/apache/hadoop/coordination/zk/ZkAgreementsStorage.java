@@ -58,7 +58,7 @@ import static com.google.common.base.Predicates.in;
 import static com.google.common.base.Predicates.not;
 
 /**
- * Class encapsulate all operations with agreements, stored in zk.
+ * Class encapsulates all operations with agreements, stored in zk.
  * Agreements stored in buckets, extra buckets are removed by background
  * thread.
  * Bucket can be marked as deleted, that means, bucket is under deletion,
@@ -445,7 +445,8 @@ public class ZkAgreementsStorage {
   }
 
   /**
-   * Perform batched bucket deletion.
+   * Perform batched bucket deletion. Zk doesnt support recursive delete,
+   * in this method batch of delete operation issued.
    */
   private boolean deleteBucket(String s) throws IOException, KeeperException, InterruptedException {
     long bucketId = Long.parseLong(s);
