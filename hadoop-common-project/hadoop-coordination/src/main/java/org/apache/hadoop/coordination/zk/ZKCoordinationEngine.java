@@ -48,6 +48,22 @@ import org.apache.zookeeper.ZooDefs;
 /**
  * ZooKeeper-based implementation of {@link CoordinationEngine} that delivers
  * agreements to the learner of type {@code L} via the {@link AgreementHandler}.
+ *
+ * Implementation uses zookeeper sequential nodes. For each agreement
+ * new znode allocated. To prevent unconditional growth of children znodes
+ * grouped into buckets. Each agreement has to be written to
+ * /ce/agreemetns/<bucketid>/a-<agreementseq>. Result of the write operation
+ * is checked for assigned sequential number. If it exceeds maximum number of
+ * agreements per bucket, agreement resubmitted to next bucket.
+ *
+ * Background thread cleans buckets, older then given threshold (maximum
+ * number of buckets).
+ *
+ * Learning done in batches, CE knows in advance (looking at cversion of znode)
+ * how much agreements in given bucket and request several read requests at once.
+ * Upon completion of agreement processing CE stores final GSN (Global Sequence
+ * Number) alongside bucket and sequence seen. This information is used on
+ * recovery.
  */
 public class ZKCoordinationEngine<L> extends AbstractService
         implements CoordinationEngine<L>, Watcher {
@@ -77,15 +93,28 @@ public class ZKCoordinationEngine<L> extends AbstractService
 
   /** CE node identification */
   private String localNodeId;
+  /** root zpath where CE stores state */
   private String zkRootPath;
+  /** znode where buckets are created */
   private String zkAgreementsPath;
+  /** znode where gsn states are created */
   private String zkGsnPath;
+  /** znode where current CE instance stores ZkGsnState structure */
   private String zkGsnZNode;
+
   private int zookeeperSessionTimeout;
   private String zkConnectString;
+
+  /** Configurable parameter for number of agreements per bucket calculation */
   private int zkBucketDigits;
+  /** Agreements processing batch size */
   private int zkBatchSize;
+  /** Cleanup thread will try to remove extra buckets over this limit */
   private int zkMaxBuckets;
+  /**
+   * If true, tells CE to commit GSN after processing of all agreements in batch,
+   * significally reduces write load of zk ensemble
+   */
   private boolean zkBatchCommit;
 
   private final Semaphore learnerCanProceed = new Semaphore(0);
@@ -330,6 +359,9 @@ public class ZKCoordinationEngine<L> extends AbstractService
     }
   }
 
+  /**
+   * Method for upserting current instance state.
+   */
   private synchronized void createOrGetGlobalSequenceNumber()
           throws IOException, InterruptedException {
     final ZNode data;
