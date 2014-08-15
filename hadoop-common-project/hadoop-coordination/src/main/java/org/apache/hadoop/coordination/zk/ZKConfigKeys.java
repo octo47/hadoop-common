@@ -48,14 +48,14 @@ public class ZKConfigKeys {
    */
   public static final String CE_ZK_BATCH_SIZE_KEY =
           "ce.zk.batch.size";
-  public static final int CE_ZK_BATCH_SIZE_DEFAULT = 100;
+  public static final int CE_ZK_BATCH_SIZE_DEFAULT = 250;
 
   /**
    * Key for ZK batch GSN commit.
    */
   public static final String CE_ZK_BATCH_COMMIT_KEY =
           "ce.zk.batch.commit";
-  public static final boolean CE_ZK_BATCH_COMMIT_DEFAULT = false;
+  public static final boolean CE_ZK_BATCH_COMMIT_DEFAULT = true;
 
   /**
    * Number for bucket decimal digits in znode sequence, that limits
