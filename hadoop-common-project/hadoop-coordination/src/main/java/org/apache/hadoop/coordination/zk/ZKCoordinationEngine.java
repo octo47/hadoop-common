@@ -75,8 +75,8 @@ public class ZKCoordinationEngine<L> extends AbstractService
    */
   private volatile boolean isLearning;
 
+  /** CE node identification */
   private String localNodeId;
-  private String instanceId;
   private String zkRootPath;
   private String zkAgreementsPath;
   private String zkGsnPath;
@@ -126,7 +126,6 @@ public class ZKCoordinationEngine<L> extends AbstractService
     }
     this.zkConnectString = conf.get(ZKConfigKeys.CE_ZK_QUORUM_KEY,
             ZKConfigKeys.CE_ZK_QUORUM_DEFAULT);
-    this.instanceId = ManagementFactory.getRuntimeMXBean().getName();
     this.zkBatchSize = conf.getInt(ZKConfigKeys.CE_ZK_BATCH_SIZE_KEY,
             ZKConfigKeys.CE_ZK_BATCH_SIZE_DEFAULT);
     this.zkBatchCommit = conf.getBoolean(ZKConfigKeys.CE_ZK_BATCH_COMMIT_KEY,
@@ -199,7 +198,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
                 ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, true);
       }
       // holding ephemeral lock for given nodeId
-      zooKeeper.create(zkGsnZNode + ".alive", instanceId.getBytes(),
+      zooKeeper.create(zkGsnZNode + ".alive", localNodeId.getBytes(),
               ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
       createOrGetGlobalSequenceNumber();
     } catch (KeeperException e) {
