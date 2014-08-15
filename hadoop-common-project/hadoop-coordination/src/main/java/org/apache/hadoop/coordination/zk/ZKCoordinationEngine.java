@@ -22,7 +22,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.lang.management.ManagementFactory;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -119,7 +118,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
 
   private final Semaphore learnerCanProceed = new Semaphore(0);
   private Thread learnerThread;
-  private ZkAgreementsStorage storage;
+  private ZkAgreementsStorage agreementsStorage;
 
   private ZkConnection zooKeeper;
 
@@ -182,14 +181,14 @@ public class ZKCoordinationEngine<L> extends AbstractService
               zkConnectString,
               getZooKeeperSessionTimeout());
 
-      initStorage();
+      initZkPaths();
 
       zooKeeper.addWatcher(this);
       LOG.info("Сurrent GSN to: " + currentGSN + ", zk session 0x" +
               Long.toHexString(zooKeeper.getSessionId()));
-      this.storage = new ZkAgreementsStorage(zooKeeper, zkAgreementsPath,
+      this.agreementsStorage = new ZkAgreementsStorage(zooKeeper, zkAgreementsPath,
               zkBucketDigits, zkMaxBuckets);
-      this.storage.start();
+      this.agreementsStorage.start();
     } catch (Exception e) {
       serviceStop();
       throw new IOException("Cannot start ZKCoordinationEngine", e);
@@ -201,9 +200,9 @@ public class ZKCoordinationEngine<L> extends AbstractService
 
   @Override // AbstractService
   protected void serviceStop() throws Exception {
-    if (storage != null) {
-      storage.stop();
-      storage = null;
+    if (agreementsStorage != null) {
+      agreementsStorage.stop();
+      agreementsStorage = null;
     }
     stopAgreements();
     stopZk();
@@ -212,7 +211,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
     LOG.info("Stopped ZKCoordinationEngine.");
   }
 
-  private void initStorage() throws IOException, InterruptedException {
+  private void initZkPaths() throws IOException, InterruptedException {
     try {
       if (!zooKeeper.exists(zkRootPath).isExists()) {
         zooKeeper.create(zkRootPath, EMPTY_BYTES,
@@ -270,7 +269,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
 
     try {
       byte[] serializedProposal = serialize(proposal);
-      storage.writeProposal(serializedProposal);
+      agreementsStorage.writeProposal(serializedProposal);
     } catch (Exception e) {
       throw new ProposalNotAcceptedException("Cannot accept proposal", e);
     }
@@ -457,7 +456,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
         if (!isLearning)
           return;
         try {
-          storage.iterateAgreements(
+          agreementsStorage.iterateAgreements(
                   currentGSN.getBucket(),
                   currentGSN.getSeq(),
                   zkBatchSize,
@@ -482,7 +481,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
           if (zkBatchCommit)
             updateCurrentGSN();
 
-          if (!storage.watchNextAgreement(currentGSN.getBucket(), currentGSN.getSeq()))
+          if (!agreementsStorage.watchNextAgreement(currentGSN.getBucket(), currentGSN.getSeq()))
             break;
         } catch (KeeperException e) {
           throw new IOException("Agreements path missed");
