@@ -26,7 +26,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.coordination.AgreementHandler;
-import org.apache.hadoop.coordination.Proposal;
 import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
@@ -82,7 +81,7 @@ public class LoadTool {
     generator = new LoadLearner(engine);
     engine.init(conf);
     engine.start();
-    engine.deliverAgreements(new CoordinationHandler(generator));
+    engine.startDeliveringAgreements(new CoordinationHandler(generator));
     final int numThreads = conf.getInt(CE_BENCH_THREADS_KEY, 5);
     LOG.info("Starting " + numThreads + " threads");
     LoadToolMetrics metrics = LoadToolMetrics.create(this, 0);

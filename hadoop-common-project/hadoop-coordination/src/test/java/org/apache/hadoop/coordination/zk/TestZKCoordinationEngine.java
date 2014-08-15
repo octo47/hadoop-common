@@ -99,7 +99,7 @@ public class TestZKCoordinationEngine {
     ZKCoordinationEngine<SampleLearner> cEngine
         = getStartedZkCoordinationEngine(conf);
 
-    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
     assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
     assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
 
@@ -155,7 +155,7 @@ public class TestZKCoordinationEngine {
 
     assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
 
-    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
     assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
 
     while (cEngine.getGlobalSequenceNumber() < targetGSN) {
@@ -203,7 +203,7 @@ public class TestZKCoordinationEngine {
     ZKCoordinationEngine<SampleLearner> cEngine
         = getStartedZkCoordinationEngine(conf);
 
-    cEngine.deliverAgreements(new SampleHandler(new SampleLearner()));
+    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
     assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
 
     Thread.sleep(200);

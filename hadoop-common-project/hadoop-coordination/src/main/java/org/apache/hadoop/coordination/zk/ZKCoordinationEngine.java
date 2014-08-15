@@ -332,7 +332,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
    * @param consumer the consumer of the agreed values.
    */
   @Override // CoordinationEngine
-  public synchronized void deliverAgreements(final AgreementHandler<L> consumer) {
+  public synchronized void startDeliveringAgreements(final AgreementHandler<L> consumer) {
     if (isLearning) {
       return;
     }

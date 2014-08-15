@@ -56,7 +56,7 @@ public interface CoordinationEngine<L> extends Service {
    *
    * @param consumer the consumer of the agreed values.
    */
-  void deliverAgreements(final AgreementHandler<L> consumer);
+  void startDeliveringAgreements(final AgreementHandler<L> consumer);
 
   /**
    * @return true if the {@link CoordinationEngine} is delivering agreements
