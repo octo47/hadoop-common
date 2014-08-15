@@ -419,6 +419,10 @@ public class ZkAgreementsStorage {
   }
 
 
+  /**
+   * Perform bucket cleanup.
+   * Marks bucket as deleted, tries to lock bucket before deletion.
+   */
   private void gcBuckets() throws InterruptedException, IOException, KeeperException {
     List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
     HashSet<String> locks = Sets.newHashSet();
@@ -440,6 +444,9 @@ public class ZkAgreementsStorage {
     }
   }
 
+  /**
+   * Perform batched bucket deletion.
+   */
   private boolean deleteBucket(String s) throws IOException, KeeperException, InterruptedException {
     long bucketId = Long.parseLong(s);
     String bucketLockPath = getZkAgreementBucketLockPath(bucketId);
