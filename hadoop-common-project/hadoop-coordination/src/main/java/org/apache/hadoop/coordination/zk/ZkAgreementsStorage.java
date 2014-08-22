@@ -87,7 +87,7 @@ public class ZkAgreementsStorage {
   private int zkBucketDigits;
   private int zkBucketAgreements;
   private int zkMaxBuckets;
-  private int cleanupInterval = 30; // seconds
+  private int cleanupInterval = 5; // seconds
 
   private AtomicLong currentBucket = new AtomicLong(-1);
   private Lock resolverLock = new ReentrantLock(false);
@@ -424,23 +424,25 @@ public class ZkAgreementsStorage {
    * Marks bucket as deleted, tries to lock bucket before deletion.
    */
   private void gcBuckets() throws InterruptedException, IOException, KeeperException {
-    List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
-    HashSet<String> locks = Sets.newHashSet();
-    for (String lock : Iterables.filter(znodes, BUCKET_LOCK_ZNODE)) {
-      locks.add(lock.replace(".lock", "")); // will remove locked buckets from queue
-    }
-    List<String> buckets = Lists.newArrayList(
-            Iterables.filter(znodes,
-                    and(BUCKET_ZNODE, not(in(locks)))));
-    Collections.sort(buckets);
-    int current = buckets.size();
-    if (current <= zkMaxBuckets)
-      return;
-    // assume that after sorting locks will follow bucket znodes
-    List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
-    for (String s : toRemove) {
-      if (deleteBucket(s))
+    while (true) {
+      List<String> znodes = zooKeeper.getChildren(zkAgreementsPath);
+      HashSet<String> locks = Sets.newHashSet();
+      for (String lock : Iterables.filter(znodes, BUCKET_LOCK_ZNODE)) {
+        locks.add(lock.replace(".lock", "")); // will remove locked buckets from queue
+      }
+      List<String> buckets = Lists.newArrayList(
+              Iterables.filter(znodes,
+                      and(BUCKET_ZNODE, not(in(locks)))));
+      Collections.sort(buckets);
+      int current = buckets.size();
+      if (current <= zkMaxBuckets)
         return;
+      // assume that after sorting locks will follow bucket znodes
+      List<String> toRemove = buckets.subList(0, current - zkMaxBuckets);
+      for (String s : toRemove) {
+        if (deleteBucket(s))
+          break;
+      }
     }
   }
 
