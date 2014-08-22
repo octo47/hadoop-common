@@ -72,6 +72,7 @@ public class LoadTool {
       if (nodeId == null) {
         nodeId = NetUtils.getHostname();
       }
+      conf.set(ZKConfigKeys.CE_ZK_NODE_ID_KEY, nodeId);
     }
     LOG.info("Starting LoadTool as nodeId: " + nodeId);
     this.engine = new ZKCoordinationEngine<LoadLearner>("engine");
