@@ -19,7 +19,6 @@
 package org.apache.hadoop.coordination.zk.bench;
 
 import java.util.Random;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -29,8 +28,7 @@ import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.coordination.NoQuorumException;
-import org.apache.hadoop.coordination.ProposalNotAcceptedException;
+
 
 public class ClientThread implements Runnable {
 
@@ -69,7 +67,8 @@ public class ClientThread implements Runnable {
               && !done.get()
               && iteration < maxIterations
               && (millisToRun < 0 || runningTime.elapsedMillis() < millisToRun)) {
-        final LoadProposal proposal = new LoadProposal(id, rnd.nextLong(), iteration);
+        final LoadProposal proposal = new LoadProposal(
+                generator.getLocalIdentity(), id, rnd.nextLong(), iteration);
         if (LOG.isTraceEnabled())
           LOG.trace("Proposing " + proposal + " from " + name);
         Stopwatch sw = new Stopwatch();

@@ -15,22 +15,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.coordination;
+package org.apache.hadoop.coordination.zk;
 
 import java.io.IOException;
 
-/**
- * The exception is thrown when CoordinationEngine far behind the leader.
- */
-public class StaleReplicaException extends IOException {
-  private static final long serialVersionUID = -3365375166994747839L;
+public class ZkUnableToRecoverException extends IOException {
+  public ZkUnableToRecoverException() {
+  }
 
-
-  public StaleReplicaException(final String message) {
+  public ZkUnableToRecoverException(String message) {
     super(message);
   }
 
-  public StaleReplicaException(String message, final Throwable t) {
-    super(message, t);
+  public ZkUnableToRecoverException(String message, Throwable cause) {
+    super(message, cause);
+  }
+
+  public ZkUnableToRecoverException(Throwable cause) {
+    super(cause);
   }
 }

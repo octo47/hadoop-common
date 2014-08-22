@@ -17,55 +17,115 @@
  */
 package org.apache.hadoop.coordination;
 
-import org.apache.hadoop.service.Service;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.List;
+
+import org.apache.hadoop.conf.Configuration;
 
 /**
- * The base interface defining a general purpose {@link CoordinationEngine}.
- * <br>
- * A proposer submits {@link Proposal}s to the CoordinationEngine. The
- * CoordinationEngine coordinates the proposals and, when an agreement is made,
- * delivers the agreement to the Learner of type {@link L}.
+ * Base interface defining general purpose CoordinationEngine.
+ * <p/>
+ * A node submits its proposals to the CoordinationEngine.
+ * The CoordinationEngine comes with an agreement and makes a call back.
+ * Thus all nodes learn about the agreement.<br/>
+ * CoordinationEngine guarantees that all nodes learn about the same
+ * agreements in the same order.
  */
-public interface CoordinationEngine<L> extends Service {
+public interface CoordinationEngine {
+
+  public static final long INVALID_GSN = -1L;
 
   /**
-   * The identity of the coordination engine instance as it is specified by the
-   * {@link CoordinationEngine} implementation.
-   * <p/>
-   * The identity of the CoordinationEngine is used to to identify which
-   * instance of the coordination engine made the proposal which resulted in the
-   * agreement.
+   * Initialize CoordinationEngine.
    */
-  String getIdentity();
+  void initialize(Configuration config);
 
   /**
-   * Submits a proposal to the {@link CoordinationEngine}.
+   * Start the Engine.
+   * Start accepting proposals and learning agreements.
+   * @throws IOException
+   */
+  void start() throws IOException;
+
+  /**
+   * Stop the Engine.
+   * Stop accepting proposals and learning agreements.
+   */
+  void stop();
+
+  /**
+   * Obtain ordered collection of node IDs in the membership.
+   * This includes all nodes independently on their role and the current
+   * liveness status.
+   * <p>
+   * Provided by CoordinationEngine implementation, the order is
+   * to be persisted across node restarts.
+   * The order can change when the membership changes.
    *
-   * @param proposal    the {@link Proposal} to be agreed.
-   * @param checkQuorum if true the coordination engine should check to see if a
-   *                    to check for quorum or not before submitting
-   *                    that should be processed by the coordination engine.
-   * @throws ProposalNotAcceptedException if an error occurs on submission.
+   * @return ordered collection of all node IDs in the membership.
    */
-  void submitProposal(final Proposal proposal,
-                      final boolean checkQuorum)
-      throws ProposalNotAcceptedException;
+  List<Serializable> getMembershipNodeIds();
 
   /**
-   * Deliver the agreed values to the {@link AgreementHandler<L>}.
+   * The Id of the current node as it is recognized by the
+   * CoordinationEngine implementation.
+   * <p>
+   * LocalNodeId is passed to the CoordinationEngine with every proposal.
+   * The id is retained in the agreement so that the node which originated
+   * the proposal could reply to the client.
+   */
+  Serializable getLocalNodeId();
+
+  /**
+   * Submit proposal to coordination engine.
    *
-   * @param consumer the consumer of the agreed values.
+   * @param proposal the {@link Proposal}
+   * @param checkQuorum whether to check for quorum or not before submitting
+   * that should be processed by the coordination engine.
+   *
+   * @throws ProposalSubmissionException if issue occurs on submit
    */
-  void startDeliveringAgreements(final AgreementHandler<L> consumer);
+  void submitProposal(final Proposal proposal, boolean checkQuorum)
+    throws ProposalSubmissionException;
 
   /**
-   * @return true if the {@link CoordinationEngine} is delivering agreements
-   *         to the {@link AgreementHandler<L>}.
+   * Get the GSN last seen on this node.
+   * @return the GSN of the last agreement successfully executed on the node.
    */
-  boolean isDeliveringAgreements();
+  long lastSeenGlobalSequenceNumber();
 
   /**
-   * Stop the agreements being delivered to the {@link AgreementHandler<L>}.
+   * When node restarts it may need to recover its state from
+   * CoordinationEngine by replaying missed agreements.
+   * If it missed too many agreements then it may not be able to learn them
+   * as the older ones have been discarded.
+   * @return true  if the node can recover by applying agreements or
+   *         false if the node is beyond the recovery threshold.
    */
-  void stopAgreements();
+  boolean canRecoverAgreements();
+
+  /**
+   * @return true if this node can propose.
+   */
+  boolean canPropose();
+
+  /**
+   * Stop learning agreements. May still be able to propose.
+   */
+  void pauseLearning();
+
+  /**
+   * Resume learning agreements from the specified GSN.<p/>
+   * If fromGSN is greater than the last seen GSN,
+   * then skip agreements until fromGSN.
+   * Otherwise, start learning from the last seen GSN.
+   */
+  void resumeLearning(long fromGSN);
+
+  /**
+   * Checks if a quorum is available.
+   * If not, throws NoQuorumException, forcing a client to fail-over.
+   */
+  void checkQuorum() throws NoQuorumException;
 }

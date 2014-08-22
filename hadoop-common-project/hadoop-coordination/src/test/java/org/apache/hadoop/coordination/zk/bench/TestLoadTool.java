@@ -20,16 +20,13 @@ package org.apache.hadoop.coordination.zk.bench;
 import java.io.File;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.coordination.ProposalNotAcceptedException;
 import org.apache.hadoop.coordination.zk.MiniZooKeeperCluster;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
-import org.apache.hadoop.metrics2.MetricsSystem;
-import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class LoadToolTest {
+public class TestLoadTool {
   private MiniZooKeeperCluster zkCluster;
   private Configuration conf;
 
@@ -52,7 +49,7 @@ public class LoadToolTest {
   }
 
   @Test
-  public void testLoadTool() throws ProposalNotAcceptedException, InterruptedException {
+  public void testLoadTool() throws InterruptedException {
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
     conf.setInt(LoadTool.CE_BENCH_ITERATIONS_KEY, 15);
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 3);

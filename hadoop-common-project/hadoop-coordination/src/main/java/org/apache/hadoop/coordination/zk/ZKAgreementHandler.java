@@ -15,22 +15,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.coordination;
+package org.apache.hadoop.coordination.zk;
+
+import java.io.IOException;
+
+import org.apache.hadoop.coordination.Agreement;
 
 /**
- * Interface for handling execution of agreements for learner type L. Applying
- * an agreed value to the learner may return any type of Object.
+ * Interface for handling execution of agreements
+ * for a particular learner type L and a particular agreement type A.
+ * @param L the learner type.
  */
-public interface AgreementHandler<L> {
+public interface ZKAgreementHandler<L, A extends Agreement<L, ?>> {
 
   /**
-   * @return the learner that will be informed of {@link Agreement}s.
+   * Get the learner.
    */
-  public L getLearner();
+  L getLearner();
 
   /**
-   * Process the agreed value, delivering it to the Learner.
+   * Set the learner.
    */
-  void process(String proposalIdentity, String ceIdentity, Agreement<L, Object> value)
-          throws Exception;
+  void setLearner(L learner);
+
+  /**
+   * Check whether this handler can execute this agreement or not.
+   */
+  boolean handles(Agreement<L, ?> agreement);
+
+  /**
+   * Execute specified agreement.
+   */
+  void executeAgreement(Agreement<L, ?> agreement) throws IOException;
 }

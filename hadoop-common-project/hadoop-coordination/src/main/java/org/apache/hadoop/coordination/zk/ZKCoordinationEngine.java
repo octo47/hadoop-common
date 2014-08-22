@@ -22,22 +22,23 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.coordination.Agreement;
-import org.apache.hadoop.coordination.AgreementHandler;
 import org.apache.hadoop.coordination.CoordinationEngine;
-import org.apache.hadoop.coordination.EngineInitializationException;
 import org.apache.hadoop.coordination.NoQuorumException;
 import org.apache.hadoop.coordination.Proposal;
-import org.apache.hadoop.coordination.ProposalNotAcceptedException;
+import org.apache.hadoop.coordination.ProposalSubmissionException;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.hadoop.service.AbstractService;
 import org.apache.zookeeper.CreateMode;
@@ -68,19 +69,13 @@ import org.apache.zookeeper.ZooDefs;
  */
 @InterfaceAudience.Private
 public class ZKCoordinationEngine<L> extends AbstractService
-        implements CoordinationEngine<L>, Watcher {
+        implements CoordinationEngine, Watcher {
 
   private static final Log LOG = LogFactory.getLog(ZKCoordinationEngine.class);
 
   public static final byte[] EMPTY_BYTES = new byte[0];
 
   public static final int ZK_POLL_INTERVAL_MS = 100;
-
-  /**
-   * Used as invalid GSN (normal GSNs should start with 0
-   * and increment monotonically with each new agreement.
-   */
-  public static final long INVALID_GSN = -1L;
 
   /**
    * ZK generates sequential nodes using cversion of ZNode.
@@ -124,6 +119,9 @@ public class ZKCoordinationEngine<L> extends AbstractService
   private ZkAgreementsStorage agreementsStorage;
 
   private ZkConnection zooKeeper;
+
+  private final List<ZKAgreementHandler<L, ? extends Agreement<L, ?>>>
+          handlers = Lists.newArrayList();
 
   private volatile ZNode gsnNodeStat;
   private volatile ZkCoordinationProtocol.ZkGsnState currentGSN =
@@ -207,7 +205,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
       agreementsStorage.stop();
       agreementsStorage = null;
     }
-    stopAgreements();
+    pauseLearning();
     stopZk();
     isLearning = false;
     super.serviceStop();
@@ -233,7 +231,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
               ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
       createOrGetGlobalSequenceNumber();
     } catch (KeeperException e) {
-      throw new EngineInitializationException("Can't init zk storage", e);
+      throw new IOException("Can't init zk storage", e);
     }
   }
 
@@ -256,15 +254,53 @@ public class ZKCoordinationEngine<L> extends AbstractService
     }
   }
 
+  @Override
+  public void initialize(Configuration config) {
+    this.init(config);
+  }
+
+  /**
+   * Register handlers for this instance of CE.
+   */
+  public <A extends Agreement<L, R>, R> void addHandler(ZKAgreementHandler<L, A> handler) {
+    synchronized (handlers) {
+      handlers.add(handler);
+    }
+  }
+
+  @Override
+  public List<Serializable> getMembershipNodeIds() {
+    // TODO: implement me
+    throw new UnsupportedOperationException("Not yet");
+  }
+
+  @Override
+  public long lastSeenGlobalSequenceNumber() {
+    return currentGSN.getGsn();
+  }
+
+  @Override
+  public boolean canRecoverAgreements() {
+    return agreementsStorage.canRecoverAgreements(
+            currentGSN.getBucket()
+    );
+  }
+
+  @Override
+  public boolean canPropose() {
+    return zooKeeper.isAlive();
+  }
+
+
   @Override // CoordinationEngine
-  public String getIdentity() {
+  public Serializable getLocalNodeId() {
     return localNodeId;
   }
 
   @Override // CoordinationEngine
   public void submitProposal(Proposal proposal,
                             boolean checkQuorum)
-          throws ProposalNotAcceptedException {
+          throws ProposalSubmissionException {
     // Check for quorum.
     if (checkQuorum && !hasQuorum()) {
       throw new NoQuorumException("The zookeeper engine does not have quorum");
@@ -274,7 +310,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
       byte[] serializedProposal = serialize(proposal);
       agreementsStorage.writeProposal(serializedProposal);
     } catch (Exception e) {
-      throw new ProposalNotAcceptedException("Cannot accept proposal", e);
+      throw new ProposalSubmissionException("Cannot accept proposal", e);
     }
   }
 
@@ -299,13 +335,8 @@ public class ZKCoordinationEngine<L> extends AbstractService
     return currentGSN.getGsn();
   }
 
-  @Override // CoordinationEngine
-  public boolean isDeliveringAgreements() {
-    return isLearning;
-  }
-
-  @Override // CoordinationEngine
-  public void stopAgreements() {
+  @Override
+  public void pauseLearning() {
     if (!isLearning) {
       return;
     }
@@ -321,27 +352,34 @@ public class ZKCoordinationEngine<L> extends AbstractService
     }
   }
 
-  /**
-   * Calling this method starts the delivery of agreements to the
-   * {@link AgreementHandler}, which applies the agreements to the learner of
-   * type {@link L}.
-   *
-   * This method is synchronized so two threads calling this method at the same
-   * time cannot create two {@link AgreementsRunnable} instances.
-   *
-   * @param consumer the consumer of the agreed values.
-   */
-  @Override // CoordinationEngine
-  public synchronized void startDeliveringAgreements(final AgreementHandler<L> consumer) {
+  @Override
+  public void resumeLearning(long fromGSN) {
+    if (fromGSN != INVALID_GSN)
+      throw new IllegalArgumentException("Don't know how to start from given GSN, yet");
+
     if (isLearning) {
       return;
     }
-    AgreementsRunnable runnable = new AgreementsRunnable(consumer);
+
+    AgreementsRunnable runnable = new AgreementsRunnable();
     learnerThread = new Thread(runnable);
     learnerThread.setDaemon(true);
     learnerThread.setName(getName() + "-learner");
     learnerThread.start();
     isLearning = true;
+  }
+
+  public boolean isLearning() {
+    return isLearning;
+  }
+
+  @Override
+  public void checkQuorum() throws NoQuorumException {
+    try {
+      zooKeeper.sync(zkAgreementsPath);
+    } catch (Exception e) {
+      throw new NoQuorumException("Unable to sync() zk connection:", e);
+    }
   }
 
   public boolean hasQuorum() {
@@ -429,12 +467,6 @@ public class ZKCoordinationEngine<L> extends AbstractService
    */
   class AgreementsRunnable implements Runnable {
 
-    private final AgreementHandler<L> handler;
-
-    AgreementsRunnable(final AgreementHandler<L> learner) {
-      this.handler = learner;
-    }
-
     @Override // Runnable
     public void run() {
       while (isLearning) {
@@ -455,6 +487,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
     }
 
     // TODO: here should not be synchronized
+    @SuppressWarnings("unchecked")
     synchronized void executeAgreements() throws IOException, InterruptedException {
       do {
         if (!isLearning)
@@ -469,9 +502,10 @@ public class ZKCoordinationEngine<L> extends AbstractService
                     public void apply(long bucket, int seq, byte[] data) throws IOException, InterruptedException {
                       try {
                         Object obj = deserialize(data);
-                        if (!(obj instanceof Proposal))
-                          throw new IOException("Expecting Proposal but got " + obj);
-                        Proposal agreed = (Proposal) obj;
+                        if (!(obj instanceof Agreement))
+                          throw new IOException("Expecting " + Agreement.class.getName()
+                                  + " instead got " + obj.getClass());
+                        Agreement<L, ?> agreed = (Agreement<L, ?>) obj;
                         applyAgreed(bucket, seq, agreed);
                         if (!zkBatchCommit)
                           updateCurrentGSN();
@@ -496,9 +530,8 @@ public class ZKCoordinationEngine<L> extends AbstractService
       } while (isLearning);
     }
 
-    @SuppressWarnings("unchecked")
-    private synchronized void applyAgreed(long bucket, int seq, Proposal agreed)
-            throws IOException, KeeperException, InterruptedException {
+    private synchronized void applyAgreed(long bucket, int seq, Agreement<L, ?> agreed)
+    throws IOException, KeeperException, InterruptedException {
       try {
         currentGSN = ZkCoordinationProtocol.ZkGsnState.newBuilder()
             .setGsn(currentGSN.getGsn() + 1)
@@ -507,11 +540,12 @@ public class ZKCoordinationEngine<L> extends AbstractService
             .build();
         if (LOG.isTraceEnabled())
           LOG.trace("Applying agreement, set GSN to " + currentGSN.toString());
-        Object obj = deserialize(agreed.getValue());
-        if (!(obj instanceof Agreement))
-          throw new IOException("Expecting Agreement but got " + obj);
-        Agreement<L, Object> agreement = (Agreement) obj;
-        handler.process(agreed.getProposalIdentity(), agreed.getCeIdentity(), agreement);
+        synchronized (handlers) {
+          for (ZKAgreementHandler<L, ? extends Agreement<L, ?>> handler : handlers) {
+            if (handler.handles(agreed))
+              handler.executeAgreement(agreed);
+          }
+        }
       } catch (Exception e) {
         throw new IOException(e);
       }

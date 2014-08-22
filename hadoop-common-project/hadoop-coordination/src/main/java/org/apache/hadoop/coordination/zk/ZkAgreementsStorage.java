@@ -46,7 +46,6 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.coordination.StaleReplicaException;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -294,7 +293,7 @@ public class ZkAgreementsStorage {
     ZNode bucketZNode = zooKeeper.getData(getZkAgreementBucketPath(bucket));
     ZNode deletedBucketZNode = zooKeeper.exists(getZkAgreementBucketDeletedPath(bucket));
     if (!bucketZNode.isExists() || deletedBucketZNode.isExists()) {
-      throw new StaleReplicaException("Bucket " + bucket + " marked as deleted or not exists");
+      throw new ZkUnableToRecoverException("Bucket " + bucket + " marked as deleted or not exists");
     }
     // now we have knowledge of how many agreements are in bucket, that can be
     // obtained from znode CVersion.

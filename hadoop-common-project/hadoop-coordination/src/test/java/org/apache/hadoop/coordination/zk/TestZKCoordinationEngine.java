@@ -24,7 +24,9 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.coordination.ConsensusProposal;
+import org.apache.hadoop.coordination.CoordinationEngine;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -80,7 +82,7 @@ public class TestZKCoordinationEngine {
     cEngine.start();
 
     assertThat(cEngine.getServiceState(), is(equalTo(STARTED)));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+    assertThat(cEngine.isLearning(), is(equalTo(false)));
 
     return cEngine;
   }
@@ -99,15 +101,14 @@ public class TestZKCoordinationEngine {
     ZKCoordinationEngine<SampleLearner> cEngine
         = getStartedZkCoordinationEngine(conf);
 
-    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
+    cEngine.addHandler(new SampleHandler(new SampleLearner()));
+    cEngine.resumeLearning(CoordinationEngine.INVALID_GSN);
+    assertThat(cEngine.isLearning(), is(equalTo(true)));
     assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
 
     final int targetGSN = 19; // gsn start with 0
     for (int i = 0; i < targetGSN + 1; i++) {
-      byte[] value = cEngine.serialize(new SampleProposal());
-      ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
-      cEngine.submitProposal(cp, true);
+      cEngine.submitProposal(new SampleProposal("user"), true);
     }
 
     while (cEngine.getGlobalSequenceNumber() < targetGSN) {
@@ -132,7 +133,7 @@ public class TestZKCoordinationEngine {
     cEngine.stop();
 
     assertThat(cEngine.getServiceState(), is(equalTo(STOPPED)));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+    assertThat(cEngine.isLearning(), is(equalTo(false)));
   }
 
   @Test
@@ -148,15 +149,14 @@ public class TestZKCoordinationEngine {
 
     final long targetGSN = 19L; // gsn start with 0
     for (int i = 0; i < targetGSN + 1; i++) {
-      byte[] value = cEngine.serialize(new SampleProposal());
-      ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
-      cEngine.submitProposal(cp, true);
+      cEngine.submitProposal(new SampleProposal("user"), true);
     }
 
     assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(INVALID_GSN)));
 
-    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
+    cEngine.addHandler(new SampleHandler(new SampleLearner()));
+    cEngine.resumeLearning(CoordinationEngine.INVALID_GSN);
+    assertThat(cEngine.isLearning(), is(equalTo(true)));
 
     while (cEngine.getGlobalSequenceNumber() < targetGSN) {
       LOG.info("Waiting for coordination engine to learn agreement");
@@ -177,14 +177,14 @@ public class TestZKCoordinationEngine {
 
     checkAgreemetsCountStoredInZk(cEngine, zk, targetGSN + 1L);
 
-    cEngine.stopAgreements();
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+    cEngine.pauseLearning();
+    assertThat(cEngine.isLearning(), is(equalTo(false)));
     assertThat(cEngine.getGlobalSequenceNumber(), is(equalTo(targetGSN)));
 
     cEngine.stop();
 
     assertThat(cEngine.getServiceState(), is(equalTo(STOPPED)));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(false)));
+    assertThat(cEngine.isLearning(), is(equalTo(false)));
   }
 
   /**
@@ -203,8 +203,9 @@ public class TestZKCoordinationEngine {
     ZKCoordinationEngine<SampleLearner> cEngine
         = getStartedZkCoordinationEngine(conf);
 
-    cEngine.startDeliveringAgreements(new SampleHandler(new SampleLearner()));
-    assertThat(cEngine.isDeliveringAgreements(), is(equalTo(true)));
+    cEngine.addHandler(new SampleHandler(new SampleLearner()));
+    cEngine.resumeLearning(CoordinationEngine.INVALID_GSN);
+    assertThat(cEngine.isLearning(), is(equalTo(true)));
 
     Thread.sleep(200);
 
@@ -281,11 +282,10 @@ public class TestZKCoordinationEngine {
     @Override
     public void run() {
       initialized = true;
-      while (!finished) ;
+      while (!finished) {  }
       for (int i = 0; i < operations; i++) {
         try {
-          byte[] value = ce.serialize(new SampleProposal());
-          ConsensusProposal cp = new ConsensusProposal(proposerNodeId, value);
+          SampleProposal cp = new SampleProposal("user1");
           ce.submitProposal(cp, true);
         } catch (IOException e) {
           fail(String.valueOf(e));

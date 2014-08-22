@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamException;
+import java.io.Serializable;
 
 import org.apache.hadoop.coordination.Agreement;
+import org.apache.hadoop.coordination.Proposal;
 
 /**
  * The main part of the load test, this is a value object issued by the
@@ -31,7 +33,8 @@ import org.apache.hadoop.coordination.Agreement;
  * When applied to the {@link LoadTool.LoadGenerator} it returns a {@link Long}.
  */
 @Immutable
-public class LoadProposal implements Agreement<LoadLearner, Long> {
+public class LoadProposal implements
+        Proposal, Agreement<LoadLearner, Long>, Serializable {
 
   private static final long serialVersionUID = 1L;
 
@@ -39,6 +42,11 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
   private Long value;
   private Long iteration;
   private Long creationTime;
+  private String proposalNodeId;
+
+  public String getProposalNodeId() {
+    return proposalNodeId;
+  }
 
   public Long getClientId() {
     return clientId;
@@ -56,7 +64,8 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
     return creationTime;
   }
 
-  public LoadProposal(Long clientId, Long value, Long iteration) {
+  public LoadProposal(String proposalNodeId, Long clientId, Long value, Long iteration) {
+    this.proposalNodeId = proposalNodeId;
     this.value = value;
     this.clientId = clientId;
     this.iteration = iteration;
@@ -65,6 +74,7 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
 
   private void writeObject(ObjectOutputStream out)
           throws IOException {
+    out.writeUTF(proposalNodeId);
     out.writeLong(value);
     out.writeLong(clientId);
     out.writeLong(iteration);
@@ -73,6 +83,7 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
 
   private void readObject(ObjectInputStream in)
           throws IOException, ClassNotFoundException {
+    proposalNodeId = in.readUTF();
     value = in.readLong();
     clientId = in.readLong();
     iteration = in.readLong();
@@ -81,12 +92,7 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
 
   private void readObjectNoData()
           throws ObjectStreamException {
-  }
-
-  @Override
-  public Long execute(String proposalIdentity, String ceIdentity, LoadLearner loadLearner)
-          throws IOException {
-    return loadLearner.handleProposal(ceIdentity, this);
+    throw new IllegalArgumentException("Can't handle empty object");
   }
 
   @Override
@@ -96,20 +102,25 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
 
     LoadProposal that = (LoadProposal) o;
 
-    if (!clientId.equals(that.clientId)) return false;
-    if (!creationTime.equals(that.creationTime)) return false;
-    if (!iteration.equals(that.iteration)) return false;
-    if (!value.equals(that.value)) return false;
+    if (clientId != null ? !clientId.equals(that.clientId) : that.clientId != null) return false;
+    if (creationTime != null ? !creationTime.equals(that.creationTime) : that.creationTime != null)
+      return false;
+    if (iteration != null ? !iteration.equals(that.iteration) : that.iteration != null)
+      return false;
+    if (proposalNodeId != null ? !proposalNodeId.equals(that.proposalNodeId) : that.proposalNodeId != null)
+      return false;
+    if (value != null ? !value.equals(that.value) : that.value != null) return false;
 
     return true;
   }
 
   @Override
   public int hashCode() {
-    int result = clientId.hashCode();
-    result = 31 * result + value.hashCode();
-    result = 31 * result + iteration.hashCode();
-    result = 31 * result + creationTime.hashCode();
+    int result = clientId != null ? clientId.hashCode() : 0;
+    result = 31 * result + (value != null ? value.hashCode() : 0);
+    result = 31 * result + (iteration != null ? iteration.hashCode() : 0);
+    result = 31 * result + (creationTime != null ? creationTime.hashCode() : 0);
+    result = 31 * result + (proposalNodeId != null ? proposalNodeId.hashCode() : 0);
     return result;
   }
 
@@ -120,6 +131,17 @@ public class LoadProposal implements Agreement<LoadLearner, Long> {
             ", value=" + value +
             ", iteration=" + iteration +
             ", creationTime=" + creationTime +
+            ", proposalNodeId='" + proposalNodeId + '\'' +
             '}';
+  }
+
+  @Override
+  public long getGlobalSequenceNumber() {
+    throw new UnsupportedOperationException("Not known how to get GSN");
+  }
+
+  @Override
+  public Long execute(LoadLearner callBackObject) throws IOException {
+    return callBackObject.handleProposal(this);
   }
 }

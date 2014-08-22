@@ -381,6 +381,16 @@ public class ZkConnection implements Closeable, Watcher {
     return op;
   }
 
+  public void sync(String path) throws IOException, KeeperException, InterruptedException {
+    waitForFeature(syncAsync(path));
+  }
+
+  public ListenableFuture<Void> syncAsync(String path) {
+    final SyncOp op = new SyncOp(path);
+    op.submitAsyncOperation();
+    return op;
+  }
+
   public void delete(String path) throws IOException, KeeperException, InterruptedException {
     waitForFeature(deleteAsync(path, -1));
   }
@@ -751,6 +761,39 @@ public class ZkConnection implements Closeable, Watcher {
     @Override
     public String getDescription() {
       return "delete(" + path + ", " + version + ")";
+    }
+  }
+
+
+  /**
+   * Future for sync() operation
+   */
+  public class SyncOp extends ZkAsyncOperation<Void> implements AsyncCallback.VoidCallback {
+
+    @Override
+    public void processResult(int rc, String path, Object ctx) {
+      final KeeperException.Code code = KeeperException.Code.get(rc);
+      if (isSuccess(code)) {
+        set(null);
+      } else {
+        setException(KeeperException.create(code));
+      }
+    }
+
+    private final String path;
+
+    public SyncOp(String path) {
+      this.path = path;
+    }
+
+    @Override
+    public void submitAsyncOperation() {
+      zk.sync(path, this, this);
+    }
+
+    @Override
+    public String getDescription() {
+      return "sync(" + path + ")";
     }
   }
 

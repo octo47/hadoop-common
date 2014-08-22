@@ -131,6 +131,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -146,6 +147,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -182,8 +184,7 @@ public class TestZkConnection {
       try {
         op.get();
       } catch (Exception ie) {
-        Assert.assertTrue(ie.getCause().toString(),
-                ie.getCause() instanceof KeeperException.NodeExistsException);
+        Assert.fail();
       }
     }
 
@@ -197,6 +198,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -212,6 +214,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -243,6 +246,7 @@ public class TestZkConnection {
       verify(zk.mock).getChildren(eq(path), isNull(Watcher.class), eq(op), eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(),
                 ie.getCause() instanceof KeeperException.NoNodeException);
@@ -259,6 +263,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -274,6 +279,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -307,6 +313,7 @@ public class TestZkConnection {
       verify(zk.mock).setData(eq(path), eq(payload), eq(1), eq(op), eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(),
                 ie.getCause() instanceof KeeperException.NoNodeException);
@@ -321,6 +328,7 @@ public class TestZkConnection {
       verify(zk.mock).setData(eq(path), eq(payload), eq(1), eq(op), eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(),
                 ie.getCause() instanceof KeeperException.BadVersionException);
@@ -337,6 +345,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -352,6 +361,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(), ie.getCause() instanceof IOException);
       }
@@ -367,6 +377,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -398,8 +409,7 @@ public class TestZkConnection {
       try {
         op.get();
       } catch (Exception ie) {
-        Assert.assertTrue(ie.getCause().toString(),
-                ie.getCause() instanceof KeeperException.NoNodeException);
+        Assert.fail();
       }
     }
 
@@ -411,6 +421,7 @@ public class TestZkConnection {
       verify(zk.mock).delete(eq(path), eq(1), eq(op), eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(),
                 ie.getCause() instanceof KeeperException.BadVersionException);
@@ -427,6 +438,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -442,6 +454,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(), ie.getCause() instanceof IOException);
       }
@@ -457,6 +470,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -494,6 +508,7 @@ public class TestZkConnection {
       verify(rp, atMost(0)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause().toString(),
                 ie.getCause() instanceof KeeperException.NodeExistsException);
@@ -524,6 +539,7 @@ public class TestZkConnection {
       verify(rp, atMost(1)).retryOperation(eq(op));
       try {
         op.get();
+        Assert.fail();
       } catch (Exception ie) {
         Assert.assertTrue(ie.getCause() instanceof IOException);
       }
@@ -545,6 +561,57 @@ public class TestZkConnection {
       }
     }
   }
+
+  @Test
+  public void testSync()
+          throws InterruptedException, IOException, KeeperException, ExecutionException {
+    final MyZkFactory zk = new MyZkFactory();
+    ZkConnection zkcon = getZkConnection(zk);
+
+    final String path = "/abc";
+    // check sync node
+    {
+      final ZkConnection.SyncOp op = zkcon.new SyncOp(path);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.OK.intValue(), path, op);
+      verify(zk.mock).sync(eq(path), eq(op), eq(op));
+      Assert.assertNull(path, op.get());
+    }
+    // check for nonfatal exception
+    {
+      final ZkConnection.SyncOp op = zkcon.new SyncOp(path);
+      ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
+      op.setPolicy(rp);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.CONNECTIONLOSS.intValue(), path, null);
+      verify(zk.mock).sync(eq(path), eq(op), eq(op));
+      verify(rp, atMost(1)).retryOperation(eq(op));
+      try {
+        op.get();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+
+    // check for fatal exception
+    {
+      final ZkConnection.SyncOp op = zkcon.new SyncOp(path);
+      ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);
+      op.setPolicy(rp);
+      op.submitAsyncOperation();
+      op.processResult(KeeperException.Code.SESSIONEXPIRED.intValue(), path, null);
+      verify(zk.mock).sync(eq(path), eq(op), eq(op));
+      verify(rp, atMost(0)).retryOperation(eq(op));
+      try {
+        op.get();
+        Assert.fail();
+      } catch (Exception ie) {
+        Assert.assertTrue(ie.getCause() instanceof IOException);
+      }
+    }
+  }
+
+
 
   private ZkConnection.RetryPolicy addRetryPolicy(ZkConnection.ZkAsyncOperation<?> op) {
     ZkConnection.RetryPolicy rp = mock(ZkConnection.RetryPolicy.class);

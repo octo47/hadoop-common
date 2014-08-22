@@ -18,19 +18,17 @@
 package org.apache.hadoop.coordination;
 
 /**
- * The exception is thrown when CoordinationEngine lacks the quorum necessary to
- * make an agreement.
+ * The exception is thrown when CoordinationEngine lacks the quorum.
  */
-public class NoQuorumException extends ProposalNotAcceptedException {
-
+public class NoQuorumException extends ProposalSubmissionException {
   private static final long serialVersionUID = -3365375166994747839L;
+
 
   public NoQuorumException(final String message) {
     super(message);
   }
 
-  public NoQuorumException(final String message,
-                           final Throwable t) {
+  public NoQuorumException(String message, final Throwable t) {
     super(message, t);
   }
 }

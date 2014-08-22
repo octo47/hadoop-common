@@ -19,7 +19,6 @@
 package org.apache.hadoop.coordination.zk.bench;
 
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -33,13 +32,14 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.coordination.ConsensusProposal;
-import org.apache.hadoop.coordination.ProposalNotAcceptedException;
+import org.apache.hadoop.coordination.ProposalSubmissionException;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
+import org.apache.hadoop.coordination.zk.ZKSimpleAgreementHandler;
 
 class LoadLearner {
 
   private static final Log LOG = LogFactory.getLog(LoadLearner.class);
+
 
   class State {
     final String threadId;
@@ -93,9 +93,8 @@ class LoadLearner {
     try {
       ct.setName(threadId);
       threads.put(threadId, state);
-      byte[] value = engine.serialize(new RegisterProposal(req));
-      engine.submitProposal(new ConsensusProposal(
-              engine.getIdentity(), value), true);
+      engine.submitProposal(new RegisterProposal(
+              getLocalIdentity(), req), true);
       return state.register;
     } finally {
       lock.unlock();
@@ -114,7 +113,7 @@ class LoadLearner {
   }
 
   public String getLocalIdentity() {
-    return engine.getIdentity();
+    return engine.getLocalNodeId().toString();
   }
 
   /**
@@ -122,7 +121,7 @@ class LoadLearner {
    * generator or start our own. In both case GSN should be the same, so
    * it is safe to assume that Random will be initialized using the same GSN.
    */
-  public void handleRegister(String ceIdentity, RegisterProposal registerProposal) {
+  public long handleRegister(String ceIdentity, RegisterProposal registerProposal) {
     Long id = engine.getGlobalSequenceNumber();
     lock.lock();
     try {
@@ -138,6 +137,7 @@ class LoadLearner {
     } finally {
       lock.unlock();
     }
+    return id;
   }
 
   public SettableFuture<Long> makeProposal(LoadProposal proposal)
@@ -145,10 +145,9 @@ class LoadLearner {
 
     SettableFuture<Long> result = SettableFuture.create();
     pending.put(proposal, result);
-    byte[] value = engine.serialize(proposal);
     try {
-      engine.submitProposal(new ConsensusProposal(getLocalIdentity(), value), false);
-    } catch (ProposalNotAcceptedException pnae) {
+      engine.submitProposal(proposal, false);
+    } catch (ProposalSubmissionException pnae) {
       pending.remove(proposal);
       result.setException(pnae);
     }
@@ -158,7 +157,7 @@ class LoadLearner {
   /**
    * Advance state of thread, compare with expected random sequence.
    */
-  public Long handleProposal(String ceIdentity, LoadProposal proposal) {
+  public Long handleProposal(LoadProposal proposal) {
     final Long clientId = proposal.getClientId();
     Random random = state.get(clientId);
     if (random == null) {
@@ -170,7 +169,7 @@ class LoadLearner {
       if (LOG.isTraceEnabled())
         LOG.trace("Complete Proposal " + proposal);
     } else {
-      if (ceIdentity.equals(this.getLocalIdentity())) {
+      if (proposal.getProposalNodeId().equals(this.getLocalIdentity())) {
         throw new IllegalStateException("Pending map contains no proposals for " + proposal);
       }
     }
@@ -201,6 +200,24 @@ class LoadLearner {
       }
     } finally {
       lock.unlock();
+    }
+  }
+
+  public void addHandlers(ZKCoordinationEngine<LoadLearner> engine) {
+    engine.addHandler(new RegisterHandler(this));
+    engine.addHandler(new LoadHandler(this));
+  }
+
+
+  static class RegisterHandler extends ZKSimpleAgreementHandler<LoadLearner, RegisterProposal> {
+    RegisterHandler(LoadLearner loadLearner) {
+      super(RegisterProposal.class, loadLearner);
+    }
+  }
+
+  static class LoadHandler extends ZKSimpleAgreementHandler<LoadLearner, LoadProposal> {
+    LoadHandler(LoadLearner loadLearner) {
+      super(LoadProposal.class, loadLearner);
     }
   }
 

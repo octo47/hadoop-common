@@ -25,10 +25,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.coordination.Agreement;
-import org.apache.hadoop.coordination.AgreementHandler;
-import org.apache.hadoop.coordination.ProposalNotAcceptedException;
+import org.apache.hadoop.coordination.CoordinationEngine;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
+import org.apache.hadoop.coordination.zk.ZKSimpleAgreementHandler;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.net.NetUtils;
@@ -78,11 +78,12 @@ public class LoadTool {
     this.engine = new ZKCoordinationEngine<LoadLearner>("engine");
   }
 
-  public void run() throws ProposalNotAcceptedException, InterruptedException {
+  public void run() throws InterruptedException {
     generator = new LoadLearner(engine);
     engine.init(conf);
     engine.start();
-    engine.startDeliveringAgreements(new CoordinationHandler(generator));
+    generator.addHandlers(engine);
+    engine.resumeLearning(CoordinationEngine.INVALID_GSN);
     final int numThreads = conf.getInt(CE_BENCH_THREADS_KEY, 5);
     LOG.info("Starting " + numThreads + " threads");
     LoadToolMetrics metrics = LoadToolMetrics.create(this, 0);
@@ -112,31 +113,7 @@ public class LoadTool {
     return this.conf.get(ZKConfigKeys.CE_ZK_NODE_ID_KEY, "undefined-node-id");
   }
 
-  static class CoordinationHandler implements AgreementHandler<LoadLearner> {
-
-    private LoadLearner loadLearner;
-
-    CoordinationHandler(LoadLearner loadLearner) {
-      this.loadLearner = loadLearner;
-    }
-
-    @Override
-    public LoadLearner getLearner() {
-      return loadLearner;
-    }
-
-    @Override
-    public void process(String proposalIdentity, String ceIdentity, Agreement<LoadLearner, Object> value)
-            throws Exception {
-      try {
-        value.execute(proposalIdentity, ceIdentity, getLearner());
-      } catch (IOException e) {
-        LOG.error("Failed to apply agreement: " + value, e);
-      }
-    }
-  }
-
-  public static void main(String[] args) throws ProposalNotAcceptedException, InterruptedException {
+  public static void main(String[] args) throws InterruptedException {
     Configuration conf = new Configuration();
     conf.addResource(args[0]);
     final MetricsSystem metricsSystem = DefaultMetricsSystem.initialize("load");

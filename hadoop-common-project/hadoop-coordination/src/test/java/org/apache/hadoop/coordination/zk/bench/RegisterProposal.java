@@ -18,6 +18,7 @@
 package org.apache.hadoop.coordination.zk.bench;
 
 import org.apache.hadoop.coordination.Agreement;
+import org.apache.hadoop.coordination.Proposal;
 
 import javax.annotation.concurrent.Immutable;
 import java.io.DataInputStream;
@@ -25,31 +26,28 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamException;
+import java.io.Serializable;
 
 /**
  * A value object used for {@link LoadTool.LoadThread} registration. When
  * applied to the {@link LoadTool.LoadThread} it returns {@link Void}.
  */
 @Immutable
-public class RegisterProposal implements Agreement<LoadLearner, Void> {
+public class RegisterProposal implements Proposal, Agreement<LoadLearner, Long>, Serializable {
 
   private static final long serialVersionUID = 1L;
 
+  private String proposerNodeId;
   private int requestId;
 
   public int getRequestId() {
     return requestId;
   }
 
-  public RegisterProposal(final int requestId) {
+  public RegisterProposal(String proposerNodeId, int requestId) {
+    this.proposerNodeId = proposerNodeId;
     this.requestId = requestId;
-  }
-
-  @Override
-  public Void execute(String proposalIdentity, String ceIdentity, LoadLearner learner)
-          throws IOException {
-    learner.handleRegister(ceIdentity, this);
-    return null;
   }
 
   /**
@@ -61,6 +59,7 @@ public class RegisterProposal implements Agreement<LoadLearner, Void> {
       throws IOException {
     DataOutputStream out = new DataOutputStream(oos);
     out.writeInt(requestId);
+    out.writeUTF(proposerNodeId);
     out.close();
   }
 
@@ -72,6 +71,51 @@ public class RegisterProposal implements Agreement<LoadLearner, Void> {
       throws IOException, ClassNotFoundException {
     DataInputStream in = new DataInputStream(ois);
     requestId = in.readInt();
+    proposerNodeId = in.readUTF();
     in.close();
+  }
+
+  private void readObjectNoData()
+          throws ObjectStreamException {
+    throw new IllegalArgumentException("Can't handle empty object");
+  }
+
+  @Override
+  public long getGlobalSequenceNumber() {
+    throw new UnsupportedOperationException("Don't know how to get GSN");
+  }
+
+  @Override
+  public Long execute(LoadLearner callBackObject) throws IOException {
+    return callBackObject.handleRegister(proposerNodeId, this);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+
+    RegisterProposal that = (RegisterProposal) o;
+
+    if (requestId != that.requestId) return false;
+    if (proposerNodeId != null ? !proposerNodeId.equals(that.proposerNodeId) : that.proposerNodeId != null)
+      return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    int result = proposerNodeId != null ? proposerNodeId.hashCode() : 0;
+    result = 31 * result + requestId;
+    return result;
+  }
+
+  @Override
+  public String toString() {
+    return "RegisterProposal{" +
+            "proposerNodeId=" + proposerNodeId +
+            ", requestId=" + requestId +
+            '}';
   }
 }
