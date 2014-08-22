@@ -51,7 +51,7 @@ public class ZKConfigKeys {
    */
   public static final String CE_ZK_BATCH_SIZE_KEY =
           "ce.zk.batch.size";
-  public static final int CE_ZK_BATCH_SIZE_DEFAULT = 250;
+  public static final int CE_ZK_BATCH_SIZE_DEFAULT = 400;
 
   /**
    * Key for ZK batch GSN commit.
@@ -81,7 +81,7 @@ public class ZKConfigKeys {
   /**
    * Default number of buckets to keep in zookeeper.
    */
-  public static final int CE_ZK_MAX_BUCKETS_DEFAULT = 50;
+  public static final int CE_ZK_MAX_BUCKETS_DEFAULT = 20;
 
   /**
    * Unique ID of the node for coordination engine. No default value.
