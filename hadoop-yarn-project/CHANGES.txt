@@ -18,6 +18,8 @@ Trunk - Unreleased
     YARN-2216 TestRMApplicationHistoryWriter sometimes fails in trunk.
     (Zhijie Shen via xgong)
 
+    YARN-2436. [post-HADOOP-9902] yarn application help doesn't work (aw)
+
 Release 2.6.0 - UNRELEASED
 
   INCOMPATIBLE CHANGES
@@ -41,7 +43,28 @@ Release 2.6.0 - UNRELEASED
     YARN-1337. Recover containers upon nodemanager restart. (Jason Lowe via 
     junping_du)
 
+    YARN-2277. Added cross-origin support for the timeline server web services.
+    (Jonathan Eagles via zjshen)
+
+    YARN-2378. Added support for moving applications across queues in
+    CapacityScheduler. (Subramaniam Venkatraman Krishnan via jianhe)
+
+    YARN-2411. Support simple user and group mappings to queues. (Ram Venkatesh
+    via jianhe)
+
+    YARN-2174. Enable HTTPs for the writer REST API of TimelineServer.
+    (Zhijie Shen via jianhe)
+
+    YARN-2393. FairScheduler: Add the notion of steady fair share. 
+    (Wei Yan via kasha)
+
   IMPROVEMENTS
+
+    YARN-2197. Add a link to YARN CHANGES.txt in the left side of doc
+      (Akira AJISAKA via aw)
+
+    YARN-1918. Typo in description and error message for
+      'yarn.resourcemanager.cluster-id' (Anandha L Ranganathan via aw)
 
     YARN-2242. Improve exception information on AM launch crashes. (Li Lu 
     via junping_du)
@@ -128,6 +151,9 @@ Release 2.6.0 - UNRELEASED
     YARN-1370. Fair scheduler to re-populate container allocation state. 
     (Anubhav Dhoot via kasha)
 
+    YARN-2389. Added functionality for schedulers to kill all applications in a
+    queue. (Subramaniam Venkatraman Krishnan via jianhe)
+
   OPTIMIZATIONS
 
   BUG FIXES
@@ -187,7 +213,31 @@ Release 2.6.0 - UNRELEASED
     YARN-2361. RMAppAttempt state machine entries for KILLED state has duplicate
     event entries. (Zhihai Xu via kasha)
 
-Release 2.5.0 - UNRELEASED
+    YARN-2070. Made DistributedShell publish the short user name to the timeline
+    server. (Robert Kanter via zjshen)
+
+    YARN-2397. Avoided loading two authentication filters for RM and TS web
+    interfaces. (Varun Vasudev via zjshen)
+
+    YARN-2409. RM ActiveToStandBy transition missing stoping previous rmDispatcher.
+    (Rohith via jianhe)
+
+    YARN-2249. Avoided AM release requests being lost on work preserving RM
+    restart. (Jian He via zjshen)
+
+    YARN-2034. Description for yarn.nodemanager.localizer.cache.target-size-mb
+    is incorrect (Chen He via jlowe)
+
+    YARN-1919. Potential NPE in EmbeddedElectorService#stop. 
+    (Tsuyoshi Ozawa via kasha)
+
+    YARN-2424. LCE should support non-cgroups, non-secure mode (Chris Douglas 
+    via aw)
+
+    YARN-2434. RM should not recover containers from previously failed attempt
+    when AM restart is not enabled (Jian He via jlowe)
+
+Release 2.5.0 - 2014-08-11
 
   INCOMPATIBLE CHANGES
 

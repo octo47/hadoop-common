@@ -16,16 +16,17 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.lib.service;
+package org.apache.hadoop.ipc;
 
-import org.apache.hadoop.classification.InterfaceAudience;
-
-import java.io.IOException;
-import java.security.AccessControlException;
-
-@InterfaceAudience.Private
-public interface ProxyUser {
-
-  public void validate(String proxyUser, String proxyHost, String doAsUser) throws IOException, AccessControlException;
-
+/**
+ * Implement this interface to make a pluggable multiplexer in the
+ * FairCallQueue.
+ */
+public interface RpcMultiplexer {
+  /**
+   * Should get current index and optionally perform whatever is needed
+   * to prepare the next index.
+   * @return current index
+   */
+  int getAndAdvanceCurrentIndex();
 }
