@@ -17,18 +17,15 @@
  */
 package org.apache.hadoop.coordination.zk.bench;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.coordination.Agreement;
 import org.apache.hadoop.coordination.CoordinationEngine;
 import org.apache.hadoop.coordination.zk.ZKConfigKeys;
 import org.apache.hadoop.coordination.zk.ZKCoordinationEngine;
-import org.apache.hadoop.coordination.zk.ZKSimpleAgreementHandler;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.net.NetUtils;
@@ -60,7 +57,7 @@ public class LoadTool {
   public static final String CE_BENCH_THREADS_KEY = "ce.bench.threads";
 
   private final Configuration conf;
-  private final ZKCoordinationEngine<LoadLearner> engine;
+  private final ZKCoordinationEngine engine;
 
   private volatile LoadLearner generator;
 
@@ -75,7 +72,7 @@ public class LoadTool {
       conf.set(ZKConfigKeys.CE_ZK_NODE_ID_KEY, nodeId);
     }
     LOG.info("Starting LoadTool as nodeId: " + nodeId);
-    this.engine = new ZKCoordinationEngine<LoadLearner>("engine");
+    this.engine = new ZKCoordinationEngine("engine");
   }
 
   public void run() throws InterruptedException {

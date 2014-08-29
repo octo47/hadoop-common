@@ -203,7 +203,7 @@ class LoadLearner {
     }
   }
 
-  public void addHandlers(ZKCoordinationEngine<LoadLearner> engine) {
+  public void addHandlers(ZKCoordinationEngine engine) {
     engine.addHandler(new RegisterHandler(this));
     engine.addHandler(new LoadHandler(this));
   }

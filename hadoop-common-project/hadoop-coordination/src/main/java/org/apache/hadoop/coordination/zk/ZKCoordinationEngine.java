@@ -68,7 +68,7 @@ import org.apache.zookeeper.ZooDefs;
  * recovery.
  */
 @InterfaceAudience.Private
-public class ZKCoordinationEngine<L> extends AbstractService
+public class ZKCoordinationEngine extends AbstractService
         implements CoordinationEngine, Watcher {
 
   private static final Log LOG = LogFactory.getLog(ZKCoordinationEngine.class);
@@ -120,7 +120,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
 
   private ZkConnection zooKeeper;
 
-  private final List<ZKAgreementHandler<L, ? extends Agreement<L, ?>>>
+  private final List<ZKAgreementHandler<?, ? extends Agreement<?, ?>>>
           handlers = Lists.newArrayList();
 
   private volatile ZNode gsnNodeStat;
@@ -262,7 +262,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
   /**
    * Register handlers for this instance of CE.
    */
-  public <A extends Agreement<L, R>, R> void addHandler(ZKAgreementHandler<L, A> handler) {
+  public <L, A extends Agreement<L, R>, R> void addHandler(ZKAgreementHandler<L, A> handler) {
     synchronized (handlers) {
       handlers.add(handler);
     }
@@ -505,7 +505,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
                         if (!(obj instanceof Agreement))
                           throw new IOException("Expecting " + Agreement.class.getName()
                                   + " instead got " + obj.getClass());
-                        Agreement<L, ?> agreed = (Agreement<L, ?>) obj;
+                        Agreement<?, ?> agreed = (Agreement<?, ?>) obj;
                         applyAgreed(bucket, seq, agreed);
                         if (!zkBatchCommit)
                           updateCurrentGSN();
@@ -530,7 +530,8 @@ public class ZKCoordinationEngine<L> extends AbstractService
       } while (isLearning);
     }
 
-    private synchronized void applyAgreed(long bucket, int seq, Agreement<L, ?> agreed)
+    @SuppressWarnings("unchecked")
+    private synchronized void applyAgreed(long bucket, int seq, Agreement<?, ?> agreed)
     throws IOException, KeeperException, InterruptedException {
       try {
         currentGSN = ZkCoordinationProtocol.ZkGsnState.newBuilder()
@@ -541,7 +542,7 @@ public class ZKCoordinationEngine<L> extends AbstractService
         if (LOG.isTraceEnabled())
           LOG.trace("Applying agreement, set GSN to " + currentGSN.toString());
         synchronized (handlers) {
-          for (ZKAgreementHandler<L, ? extends Agreement<L, ?>> handler : handlers) {
+          for (ZKAgreementHandler handler : handlers) {
             if (handler.handles(agreed))
               handler.executeAgreement(agreed);
           }

@@ -24,8 +24,6 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.coordination.Agreement;
-import org.apache.hadoop.coordination.ConsensusProposal;
 import org.apache.hadoop.coordination.CoordinationEngine;
 import org.apache.hadoop.coordination.zk.protobuf.ZkCoordinationProtocol;
 import org.apache.zookeeper.KeeperException;
@@ -74,10 +72,10 @@ public class TestZKCoordinationEngine {
     }
   }
 
-  private ZKCoordinationEngine<SampleLearner> getStartedZkCoordinationEngine(
+  private ZKCoordinationEngine getStartedZkCoordinationEngine(
       Configuration conf) {
-    ZKCoordinationEngine<SampleLearner> cEngine =
-        new ZKCoordinationEngine<SampleLearner>("ce");
+    ZKCoordinationEngine cEngine =
+        new ZKCoordinationEngine("ce");
     cEngine.init(conf);
     cEngine.start();
 
@@ -98,7 +96,7 @@ public class TestZKCoordinationEngine {
     conf.setInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY, 6000);
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
 
-    ZKCoordinationEngine<SampleLearner> cEngine
+    ZKCoordinationEngine cEngine
         = getStartedZkCoordinationEngine(conf);
 
     cEngine.addHandler(new SampleHandler(new SampleLearner()));
@@ -144,7 +142,7 @@ public class TestZKCoordinationEngine {
     conf.setInt(ZKConfigKeys.CE_ZK_SESSION_TIMEOUT_KEY, 6000);
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
 
-    ZKCoordinationEngine<SampleLearner> cEngine
+    ZKCoordinationEngine cEngine
         = getStartedZkCoordinationEngine(conf);
 
     final long targetGSN = 19L; // gsn start with 0
@@ -200,7 +198,7 @@ public class TestZKCoordinationEngine {
     conf.setInt(ZKConfigKeys.CE_ZK_BUCKET_DIGITS_KEY, 1);
     conf.set(ZKConfigKeys.CE_ZK_QUORUM_KEY, zkCluster.getConnectString());
 
-    ZKCoordinationEngine<SampleLearner> cEngine
+    ZKCoordinationEngine cEngine
         = getStartedZkCoordinationEngine(conf);
 
     cEngine.addHandler(new SampleHandler(new SampleLearner()));
