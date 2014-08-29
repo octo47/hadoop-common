@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -190,11 +191,18 @@ public class ZkConnection implements Closeable, Watcher {
 
     final SettableFuture<Boolean> connected = SettableFuture.create();
     try {
+      final CountDownLatch assigned = new CountDownLatch(1);
       this.zk = zkFactory.create(new Watcher() {
         @Override
         public void process(WatchedEvent event) {
           switch (event.getState()) {
             case SyncConnected:
+              try {
+                // wait for zk variable was assigned
+                assigned.await(getSessionTimeout(), TimeUnit.MILLISECONDS);
+              } catch (InterruptedException e) {
+                connected.setException(e);
+              }
               // set global watcher
               zk.register(ZkConnection.this);
               connected.set(true);
@@ -207,6 +215,7 @@ public class ZkConnection implements Closeable, Watcher {
           ZkConnection.this.process(event);
         }
       });
+      assigned.countDown();
       connected.get(getSessionTimeout(), TimeUnit.MILLISECONDS);
       // do sync check
       final Stat exists = zk.exists(chrootPath, false);
